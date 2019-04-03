@@ -1,0 +1,19 @@
+<map id="inheritancece7b6403e7" name="inheritancece7b6403e7">
+<area shape="rect" id="node1" href="#param.parameterized.Comparator" target="_top" title="Comparator defines methods for determining whether two objects" alt="" coords="45,646,288,671"/>
+<area shape="rect" id="node2" href="#param.parameterized.Event" target="_top" title="Event(what, name, obj, cls, old, new, type)" alt="" coords="65,597,268,622"/>
+<area shape="rect" id="node3" href="#param.parameterized.MInfo" target="_top" title="MInfo(inst, cls, name, method)" alt="" coords="67,547,267,573"/>
+<area shape="rect" id="node4" href="#param.parameterized.PInfo" target="_top" title="PInfo(inst, cls, name, pobj, what)" alt="" coords="68,498,265,523"/>
+<area shape="rect" id="node5" href="#param.parameterized.ParamOverrides" target="_top" title="A dictionary that returns the attribute of a specified object if" alt="" coords="33,449,301,474"/>
+<area shape="rect" id="node6" href="#param.parameterized.Parameter" target="_top" title="An attribute descriptor for declaring parameters." alt="" coords="50,399,283,425"/>
+<area shape="rect" id="node12" href="#param.parameterized.String" target="_top" title="A String Parameter, with a default value and optional regular expression (regex) matching." alt="" coords="430,399,634,425"/>
+<area shape="rect" id="node7" href="#param.parameterized.ParameterMetaclass" target="_top" title="Metaclass allowing control over creation of Parameter classes." alt="" coords="18,350,315,375"/>
+<area shape="rect" id="node8" href="#param.parameterized.Parameterized" target="_top" title="params(name=String)" alt="" coords="37,301,296,326"/>
+<area shape="rect" id="node9" href="#param.parameterized.ParameterizedFunction" target="_top" title="params(name=String)" alt="" coords="376,301,688,326"/>
+<area shape="rect" id="node15" href="#param.parameterized.default_label_formatter" target="_top" title="params(capitalize=Parameter, overrides=Parameter, replace_underscores=Parameter, name=String)" alt="" coords="736,301,1051,326"/>
+<area shape="rect" id="node10" href="#param.parameterized.ParameterizedMetaclass" target="_top" title="The metaclass of Parameterized (and all its descendents)." alt="" coords="5,251,328,277"/>
+<area shape="rect" id="node11" href="#param.parameterized.Parameters" target="_top" title="Object that holds the namespace and implementation of Parameterized" alt="" coords="47,202,287,227"/>
+<area shape="rect" id="node13" href="#param.parameterized.Watcher" target="_top" title="Watcher(inst, cls, fn, mode, onlychanged, parameter_names, what)" alt="" coords="58,153,275,178"/>
+<area shape="rect" id="node14" href="#param.parameterized.bothmethod" target="_top" title="&#39;optional @classmethod&#39;" alt="" coords="44,103,289,129"/>
+<area shape="rect" id="node16" href="#param.parameterized.overridable_property" target="_top" title="The same as Python&#39;s &quot;property&quot; attribute, but allows the accessor" alt="" coords="17,54,316,79"/>
+<area shape="rect" id="node17" href="#param.parameterized.shared_parameters" target="_top" title="Context manager to share parameter instances when creating" alt="" coords="21,5,313,30"/>
+</map>

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<!-- Basic Page Needs
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+<meta charset="utf-8"/>
+<title>Historical release notes — Param 1.9.0 documentation</title>
+<meta content="Declarative Python programming using Parameters." name="description"/>
+<meta content="PyViz authors" name="author"/>
+<!-- Mobile Specific Metas
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<!-- FONT
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+<script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.16/webfont.js"></script>
+<script>
+    WebFont.load({
+      google: {
+        families: ['Source Sans Pro']
+      }
+    });
+  </script>
+<!-- CSS
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+<link href="_static/css/main.css" rel="stylesheet"/>
+<link href="_static/nbsite.css" rel="stylesheet"/>
+<!-- Scripts
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+<script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+<script async="" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-MML-AM_CHTML" type="text/javascript">
+</script>
+<script src="_static/js/main.js"></script>
+<script src="_static/nbsite.js"></script>
+<script src="_static/require.js"></script>
+<!-- Favicon
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+<link href="_static/favicon.ico" rel="icon" type="image/png"/>
+<!-- Canonical
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+<link href="/historical_release_notes.html" rel="canonical">
+</link></head>
+<body class="">
+<header class="navigation">
+<div class="wrapper">
+<a class="logo" href="index.html">
+<img alt="Logo" src="_static/logo.png"/>
+</a>
+<a class="navigation-menu logo-text" href="index.html">Param</a>
+<a class="navigation-menu-button" href="javascript:void(0)" id="js-mobile-menu">Menu</a>
+<nav>
+<ul class="navigation-menu show" id="js-navigation-menu">
+<li class="nav-link"><a href="Reference_Manual/param.html">API</a></li>
+<li class="nav-link"><a href="About.html">About</a></li>
+<li class="nav-link"><div style="display:inline-block;vertical-align: middle;"><div class="search-bar"><form action="search.html" method="get" role="search">
+<input name="q" placeholder="Search" type="search"/>
+<button type="submit">
+<img alt="Search Icon" src="https://raw.githubusercontent.com/thoughtbot/refills/master/source/images/search-icon-black.png"/>
+</button>
+</form>
+</div></div></li>
+</ul>
+</nav>
+</div>
+</header>
+<!-- MAIN BODY OF DOCS –––––––––––––––––– -->
+<div class="docs section">
+<div id="hacketyhackhack"> <!-- style="width:20%;margin-right: 100px;"> --> <!--style="display: none;"> style="display:none;"> -->
+<div class="toc" style="width:15%; margin-right:20px;">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="index.html">Introduction</a></li>
+<li class="toctree-l1"><a class="reference internal" href="Reference_Manual/param.html">API</a></li>
+<li class="toctree-l1"><a class="reference internal" href="About.html">About</a></li>
+</ul>
+</div>
+</div>
+<div class="content"> <!-- style="max-width:80%;margin-left:auto;margin-right: auto;">-->
+<div class="section" id="historical-release-notes">
+<h1>Historical release notes<a class="headerlink" href="#historical-release-notes" title="Permalink to this headline">¶</a></h1>
+<p>Note: current release notes are on <a class="reference external" href="https://github.com/ioam/param/releases">GitHub</a>.</p>
+<p>Notable additions, or changes that may require users to alter code,
+are listed below.</p>
+<div class="section" id="id1">
+<h2>1.4.1 (2016/07)<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Selector parameters now respect order of options supplied</p></li>
+<li><p>Allowed softbounds to be accessed like an attribute</p></li>
+</ul>
+<p>A full list of changes since the previous release is available
+<a class="reference external" href="https://github.com/ioam/param/compare/v1.4.0...v1.4.1">on GitHub</a>.</p>
+</div>
+<div class="section" id="id2">
+<h2>1.4.0 (2016/07)<a class="headerlink" href="#id2" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Added support for new <a class="reference external" href="https://github.com/ioam/paramnb">ParamNB</a> project</p></li>
+<li><p>Added new parameter types Action, FileSelector, and ListSelector</p></li>
+</ul>
+<p>A full list of changes since the previous release is available
+<a class="reference external" href="https://github.com/ioam/param/compare/v1.3.2...v1.4.0">on GitHub</a>.</p>
+</div>
+<div class="section" id="id4">
+<h2>1.3.2 (2015/04)<a class="headerlink" href="#id4" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Added Unicode support for param.String.</p></li>
+<li><p>Minor bugfixes.</p></li>
+</ul>
+<p>A full list of changes since the previous release is available
+<a class="reference external" href="https://github.com/ioam/param/compare/v1.3.1...v1.3.2">on GitHub</a>.</p>
+</div>
+<div class="section" id="id6">
+<h2>1.3.1 (2015/03)<a class="headerlink" href="#id6" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Minor bugfix release to restore pre-1.3.0 script_repr behavior
+(accidentally changed in 1.3.0) and to fix issues with logging.</p></li>
+<li><p>Param’s logging interface now matches that of Python’s logging
+module, making it simpler to use logging (see Python’s logging
+module for details). Note therefore that Param’s logging methods (a)
+no longer call functions that are passed as arguments (instead,
+Python’s logging module does lazy string merges), and (b) no longer
+automatically combine strings passed as arguments (instead, Python’s
+logging module supports string formatting).</p></li>
+<li><p>Improved set_param() method, now allowing multiple parameters to be
+set easily via keyword arguments (as on initialization).</p></li>
+</ul>
+<p>A full list of changes since the previous release is available
+<a class="reference external" href="https://github.com/ioam/param/compare/v1.3.0...v1.3.1">on GitHub</a>.</p>
+</div>
+<div class="section" id="id8">
+<h2>1.3.0 (2015/03)<a class="headerlink" href="#id8" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Added ‘allow_None’ support to all Parameters. Any subclass of
+Parameter that checks types and/or values should be modified to add
+appropriate handling of allow_None.</p></li>
+<li><p>Improved pretty printing (script_repr) of Parameterized instances,
+and made available via the pprint method. The script_repr name will
+be removed in a future release.</p></li>
+<li><p>Added (reproducible) time-dependent random streams
+(numbergen.TimeAwareRandomState).</p></li>
+<li><p>Added label and unit parameters to param.Time class.</p></li>
+<li><p>Improved optional IPython extension.</p></li>
+</ul>
+<p>A full list of changes since the previous release is available
+<a class="reference external" href="https://github.com/ioam/param/compare/v1.2.1...v1.3.0">on GitHub</a>.</p>
+</div>
+<div class="section" id="id10">
+<h2>1.2.1 (2014/06)<a class="headerlink" href="#id10" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Minor bugfix release to fix issues with version when param is
+installed in a foreign git repository</p></li>
+<li><p>Made version module optional</p></li>
+<li><p>Improved ClassSelector and ParamOverrides</p></li>
+</ul>
+<p>A full list of changes since the previous release is available
+<a class="reference external" href="https://github.com/ioam/param/compare/v1.2.0...v1.2.1">on GitHub</a>.</p>
+</div>
+<div class="section" id="id12">
+<h2>1.2.0 (2014/06)<a class="headerlink" href="#id12" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Added support for Python 3 (thanks to Marco Elver).</p></li>
+<li><p>Dropped support for Python 2.5.</p></li>
+<li><p>Added version module.</p></li>
+<li><p>Added optional numbergen package.</p></li>
+</ul>
+<p>A full list of changes since the previous release is available
+<a class="reference external" href="https://github.com/ioam/param/compare/v1.1.0...v1.2.0">on GitHub</a>.</p>
+</div>
+<div class="section" id="id14">
+<h2>1.1.0 (2014/05)<a class="headerlink" href="#id14" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Switched to Python’s own logging module.</p></li>
+<li><p>Improved support for time when using Dynamic parameters.</p></li>
+<li><p>Optional extension for IPython users.</p></li>
+</ul>
+<p>A full list of changes since the previous release is available
+<a class="reference external" href="https://github.com/ioam/param/compare/v1.0.0...v1.1.0">on GitHub</a>.</p>
+</div>
+<div class="section" id="id16">
+<h2>1.0.0 (2012/07)<a class="headerlink" href="#id16" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>First standalone release.</p></li>
+</ul>
+</div>
+<div class="section" id="pre-1-0-2003">
+<h2>Pre-1.0 (2003)<a class="headerlink" href="#pre-1-0-2003" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Param was originally developed as part of <a class="reference external" href="http://ioam.github.io/topographica/">Topographica</a>, and has been in heavy
+usage as part of that project since 2003.</p></li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<!-- END MAIN BODY OF DOCS ––––––––––––– -->
+<footer class="footer">
+<div class="footer-links">
+<ul>
+<li><span class="footer-title">Links</span></li>
+<li><a href="Reference_Manual/param.html">API</a></li>
+<li><a href="About.html">About</a></li>
+</ul>
+<ul>
+<li><span class="footer-title">Join Us</span></li>
+<li><a href="//gitter.im/pyviz/pyviz">Gitter</a></li>
+<li><a href="//github.com/ioam/param">Github</a></li>
+</ul>
+<ul class="copyright">
+<li>© 2005-2018, PyViz authors</li>
+</ul>
+</div>
+</footer>
+<!-- Google Analytics -->
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-61554933-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
+<!-- MathJax Config -->
+<script type="text/x-mathjax-config">
+MathJax.Hub.Config({
+  tex2jax: {inlineMath: [['$','$'], ['\\(','\\)']]}
+});
+</script>
+<!-- End Document
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+</body>
+</html>
