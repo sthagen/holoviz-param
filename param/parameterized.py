@@ -1062,7 +1062,7 @@ class Parameters(object):
     class or the instance as necessary.
     """
 
-    _disable_stubs = None # Flag used to disable stubs in the API1 tests
+    _disable_stubs = False # Flag used to disable stubs in the API1 tests
                           # None for no action, True to raise and False to warn.
 
     def __init__(self_, cls, self=None):
@@ -1309,18 +1309,6 @@ class Parameters(object):
         Includes Parameters from this class and its
         superclasses.
         """
-        if self_.self is not None and self_.self._instance__params:
-            self_.warning('The Parameterized instance has instance '
-                          'parameters created using new-style param '
-                          'APIs, which are incompatible with .params. '
-                          'Use the new more explicit APIs on the '
-                          '.param accessor to query parameter instances.'
-                          'To query all parameter instances use '
-                          '.param.objects with the option to return '
-                          'either class or instance parameter objects. '
-                          'Alternatively use .param[name] indexing to '
-                          'access a specific parameter object by name.')
-
         pdict = self_.objects(instance='existing')
         if parameter_name is None:
             return pdict
@@ -2794,7 +2782,7 @@ class ParameterizedFunction(Parameterized):
             cls = self_or_cls
         else:
             p = params
-            params = dict(self_or_cls.get_param_values())
+            params = dict(self_or_cls.param.get_param_values())
             params.update(p)
             params.pop('name')
             cls = self_or_cls.__class__
