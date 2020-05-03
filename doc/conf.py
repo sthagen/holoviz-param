@@ -11,7 +11,7 @@ import param
 version = release = param.__version__
 
 html_static_path += ['_static']
-html_theme = 'sphinx_ioam_theme'
+html_theme = 'sphinx_holoviz_theme'
 html_theme_options = {
     'logo':'logo.png',
     'favicon':'favicon.ico',
@@ -30,6 +30,7 @@ html_context.update({
     # canonical URL (for search engines); can ignore for local builds
     'WEBSITE_SERVER': 'https://param.holoviz.org',
     'VERSION': version,
+    'GOOGLE_ANALYTICS_UA': 'UA-154795830-6',
     'NAV': _NAV,
     'LINKS': _NAV,
     'SOCIAL': (
