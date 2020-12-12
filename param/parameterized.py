@@ -13,9 +13,9 @@ import operator
 
 # Allow this file to be used standalone if desired, albeit without JSON serialization
 try:
-   from . import serializer
+    from . import serializer
 except ImportError:
-   serializer = None
+    serializer = None
 
 
 from collections import defaultdict, namedtuple, OrderedDict
@@ -140,7 +140,8 @@ def discard_events(parameterized):
     """
     batch_watch = parameterized.param._BATCH_WATCH
     parameterized.param._BATCH_WATCH = True
-    watchers, events = parameterized.param._watchers, parameterized.param._events
+    watchers, events = (list(parameterized.param._watchers),
+                        list(parameterized.param._events))
     try:
         yield
     except:
@@ -364,7 +365,7 @@ def depends(func, *dependencies, **kw):
                              'or function is not supported when referencing '
                              'parameters by name.')
 
-    if not string_specs and watch:
+    if not string_specs and watch: # string_specs case handled elsewhere (later), in Parameterized.__init__
         def cb(*events):
             args = (getattr(dep.owner, dep.name) for dep in dependencies)
             dep_kwargs = {n: getattr(dep.owner, dep.name) for n, dep in kw.items()}
@@ -494,7 +495,8 @@ def _params_depended_on(minfo):
 
 
 def _m_caller(self, n):
-    caller = lambda event: getattr(self,n)()
+    def caller(*events):
+        return getattr(self,n)()
     caller._watcher_name = n
     return caller
 
@@ -753,8 +755,8 @@ class Parameter(object):
         if serializer is None:
             raise ImportError('Cannot import serializer.py needed to generate schema')
         if mode not in  self._serializers:
-           raise KeyError('Mode %r not in available serialization formats %r'
-                          % (mode, list(self._serializers.keys())))
+            raise KeyError('Mode %r not in available serialization formats %r'
+                           % (mode, list(self._serializers.keys())))
         return self._serializers[mode].parameter_schema(self.__class__.__name__, self,
                                                         safe=safe, subset=subset)
 
@@ -1427,6 +1429,13 @@ class Parameters(object):
                 raise ValueError("Invalid positional arguments for %s.set_param" %
                                  (self_or_cls.name))
 
+        trigger_params = [k for k in kwargs
+                          if ((k in self_.self_or_cls.param) and
+                              hasattr(self_.self_or_cls.param[k], '_autotrigger_value'))]
+
+        for tp in trigger_params:
+            self_.self_or_cls.param[tp]._mode = 'set'
+
         for (k, v) in kwargs.items():
             if k not in self_or_cls.param:
                 self_.self_or_cls.param._BATCH_WATCH = False
@@ -1441,6 +1450,11 @@ class Parameters(object):
         if not BATCH_WATCH:
             self_._batch_call_watchers()
 
+        for tp in trigger_params:
+            p = self_.self_or_cls.param[tp]
+            p._mode = 'reset'
+            setattr(self_or_cls, tp, p._autotrigger_reset_value)
+            p._mode = 'set-reset'
 
     def objects(self_, instance=True):
         """
@@ -1487,8 +1501,15 @@ class Parameters(object):
         """
         Trigger watchers for the given set of parameter names. Watchers
         will be triggered whether or not the parameter values have
-        actually changed.
+        actually changed. As a special case, the value will actually be
+        changed for a Parameter of type Event, setting it to True so
+        that it is clear which Event parameter has been triggered.
         """
+        trigger_params = [p for p in self_.self_or_cls.param
+                          if hasattr(self_.self_or_cls.param[p], '_autotrigger_value')]
+        triggers = {p:self_.self_or_cls.param[p]._autotrigger_value
+                    for p in trigger_params if p in param_names}
+
         events = self_.self_or_cls.param._events
         watchers = self_.self_or_cls.param._watchers
         self_.self_or_cls.param._events  = []
@@ -1496,7 +1517,7 @@ class Parameters(object):
         param_values = dict(self_.get_param_values())
         params = {name: param_values[name] for name in param_names}
         self_.self_or_cls.param._TRIGGER = True
-        self_.set_param(**params)
+        self_.set_param(**dict(params, **triggers))
         self_.self_or_cls.param._TRIGGER = False
         self_.self_or_cls.param._events += events
         self_.self_or_cls.param._watchers += watchers
@@ -1603,29 +1624,29 @@ class Parameters(object):
     def serialize_parameters(self_, subset=None, mode='json'):
         self_or_cls = self_.self_or_cls
         if mode not in Parameter._serializers:
-           raise ValueError('Mode %r not in available serialization formats %r'
-                            % (mode, list(Parameter._serializers.keys())))
+            raise ValueError('Mode %r not in available serialization formats %r'
+                             % (mode, list(Parameter._serializers.keys())))
         serializer = Parameter._serializers[mode]
         return serializer.serialize_parameters(self_or_cls, subset=subset)
 
     def serialize_value(self_, pname, mode='json'):
         self_or_cls = self_.self_or_cls
         if mode not in Parameter._serializers:
-           raise ValueError('Mode %r not in available serialization formats %r'
-                            % (mode, list(Parameter._serializers.keys())))
+            raise ValueError('Mode %r not in available serialization formats %r'
+                             % (mode, list(Parameter._serializers.keys())))
         serializer = Parameter._serializers[mode]
         return serializer.serialize_parameter_value(self_or_cls, pname)
 
     def deserialize_parameters(self_, serialization, subset=None, mode='json'):
-       self_or_cls = self_.self_or_cls
-       serializer = Parameter._serializers[mode]
-       return serializer.deserialize_parameters(self_or_cls, serialization, subset=subset)
+        self_or_cls = self_.self_or_cls
+        serializer = Parameter._serializers[mode]
+        return serializer.deserialize_parameters(self_or_cls, serialization, subset=subset)
 
     def deserialize_value(self_, pname, value, mode='json'):
         self_or_cls = self_.self_or_cls
         if mode not in Parameter._serializers:
-           raise ValueError('Mode %r not in available serialization formats %r'
-                            % (mode, list(Parameter._serializers.keys())))
+            raise ValueError('Mode %r not in available serialization formats %r'
+                             % (mode, list(Parameter._serializers.keys())))
         serializer = Parameter._serializers[mode]
         return serializer.deserialize_parameter_value(self_or_cls, pname, value)
 
@@ -1635,8 +1656,8 @@ class Parameters(object):
         """
         self_or_cls = self_.self_or_cls
         if mode not in Parameter._serializers:
-           raise ValueError('Mode %r not in available serialization formats %r'
-                            % (mode, list(Parameter._serializers.keys())))
+            raise ValueError('Mode %r not in available serialization formats %r'
+                             % (mode, list(Parameter._serializers.keys())))
         serializer = Parameter._serializers[mode]
         return serializer.schema(self_or_cls, safe=safe, subset=subset)
 
@@ -2086,9 +2107,9 @@ class ParameterizedMetaclass(type):
         # _ParameterizedMetaclass__abstract before running, but
         # the actual class object will have an attribute
         # _ClassName__abstract.  So, we have to mangle it ourselves at
-        # runtime.
+        # runtime. Mangling follows description in https://docs.python.org/2/tutorial/classes.html#private-variables-and-class-local-references
         try:
-            return getattr(mcs,'_%s__abstract'%mcs.__name__)
+            return getattr(mcs,'_%s__abstract'%mcs.__name__.lstrip("_"))
         except AttributeError:
             return False
 
@@ -2480,9 +2501,13 @@ class Parameterized(object):
                 # instantiation of Parameterized with watched deps. Will
                 # probably store expanded deps on class - see metaclass
                 # 'dependers'.
-                for p in self.param.params_depended_on(n):
+                grouped = defaultdict(list)
+                for dep in self.param.params_depended_on(n):
+                    grouped[(id(dep.inst),id(dep.cls),dep.what)].append(dep)
+                for group in grouped.values():
                     # TODO: can't remember why not just pass m (rather than _m_caller) here
-                    (p.inst or p.cls).param.watch(_m_caller(self, n), p.name, p.what, queued=queued)
+                    gdep = group[0] # Need to grab representative dep from this group
+                    (gdep.inst or gdep.cls).param.watch(_m_caller(self, n), [d.name for d in group], gdep.what, queued=queued)
 
         self.initialized = True
 

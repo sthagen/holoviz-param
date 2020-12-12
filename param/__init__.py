@@ -29,7 +29,7 @@ from .parameterized import (
     descendents, get_logger, instance_descriptor, basestring)
 
 from .parameterized import (batch_watch, depends, output, # noqa: api import
-                            discard_events, edit_constant)
+                            discard_events, edit_constant, instance_descriptor)
 from .parameterized import logging_level     # noqa: api import
 from .parameterized import shared_parameters # noqa: api import
 
@@ -221,7 +221,7 @@ def parameterized_class(name, params, bases=Parameterized):
     supplied parameters, inheriting from the specified base(s).
     """
     if not (isinstance(bases, list) or isinstance(bases, tuple)):
-          bases=[bases]
+        bases=[bases]
     return type(name, tuple(bases), params)
 
 
@@ -924,7 +924,7 @@ class Integer(Number):
     """Numeric Parameter required to be an Integer"""
 
     def __init__(self,default=0,**params):
-       Number.__init__(self,default=default,**params)
+        Number.__init__(self,default=default,**params)
 
     def _validate(self, val):
         if callable(val): return
@@ -1013,6 +1013,10 @@ class Tuple(Parameter):
             raise ValueError("%s: tuple is not of the correct length (%d instead of %d)." %
                              (self.name,len(val),self.length))
 
+
+    @classmethod
+    def serialize(cls, value):
+        return list(value) # As JSON has no tuple representation
 
     @classmethod
     def deserialize(cls, value):
@@ -1250,7 +1254,7 @@ class ObjectSelector(SelectorBase):
         to check each item instead.
         """
         if not (val in self.objects):
-           self.objects.append(val)
+            self.objects.append(val)
 
     def get_range(self):
         """
@@ -2012,7 +2016,7 @@ class DateRange(Range):
 
         start, end = val
         if not end >= start:
-           raise ValueError("DateRange '%s': end datetime %s is before start datetime %s."%(self.name,val[1],val[0]))
+            raise ValueError("DateRange '%s': end datetime %s is before start datetime %s."%(self.name,val[1],val[0]))
 
         # Calling super(DateRange, self)._check(val) would also check
         # values are numeric, which is redundant, so just call
@@ -2034,9 +2038,67 @@ class CalendarDateRange(Range):
 
         start, end = val
         if not end >= start:
-           raise ValueError("CalendarDateRange '%s': end date %s is before start date %s."%(self.name,val[1],val[0]))
+            raise ValueError("CalendarDateRange '%s': end date %s is before start date %s."%(self.name,val[1],val[0]))
 
         # Calling super(CalendarDateRange, self)._check(val) would also check
         # values are numeric, which is redundant, so just call
         # _checkBounds().
         self._checkBounds(val)
+
+
+class Event(Boolean):
+    """
+    An Event Parameter is one whose value is intimately linked to the
+    triggering of events for watchers to consume. Event has a Boolean
+    value, which when set to True triggers the associated watchers (as
+    any Parameter does) and then is automatically set back to
+    False. Conversely, if events are triggered directly via `.trigger`,
+    the value is transiently set to True (so that it's clear which of
+    many parameters being watched may have changed), then restored to
+    False when the triggering completes. An Event parameter is thus like
+    a momentary switch or pushbutton with a transient True value that
+    serves only to launch some other action (e.g. via a param.depends
+    decorator), rather than encapsulating the action itself as
+    param.Action does.
+    """
+
+    # _autotrigger_value specifies the value used to set the parameter
+    # to when the parameter is supplied to the trigger method. This
+    # value change is then what triggers the watcher callbacks.
+    __slots__ = ['_autotrigger_value', '_mode', '_autotrigger_reset_value']
+
+    def __init__(self,default=False,bounds=(0,1),**params):
+        self._autotrigger_value = True
+        self._autotrigger_reset_value = False
+        self._mode = 'set-reset'
+        # Mode can be one of 'set', 'set-reset' or 'reset'
+
+        # 'set' is normal Boolean parameter behavior when set with a value.
+        # 'set-reset' temporarily sets the parameter (which triggers
+        # watching callbacks) but immediately resets the value back to
+        # False.
+        # 'reset' applies the reset from True to False without
+        # triggering watched callbacks
+
+        # This _mode attribute is one of the few places where a specific
+        # parameter has a special behavior that is relied upon by the
+        # core functionality implemented in
+        # parameterized.py. Specifically, the set_param method
+        # temporarily sets this attribute in order to disable resetting
+        # back to False while triggered callbacks are executing
+        super(Event, self).__init__(default=default,**params)
+
+    def _reset_event(self, obj, val):
+        val = False
+        if obj is None:
+            self.default = val
+        else:
+            obj.__dict__[self._internal_name] = val
+        self._post_setter(obj, val)
+
+    @instance_descriptor
+    def __set__(self, obj, val):
+        if self._mode in ['set-reset', 'set']:
+            super(Event, self).__set__(obj, val)
+        if self._mode in ['set-reset', 'reset']:
+            self._reset_event(obj, val)
