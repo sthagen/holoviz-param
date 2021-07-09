@@ -21,6 +21,15 @@ extras_require = {
     'tests': [
         'nose',
         'flake8',
+    ],
+    'doc': [
+        'pygraphviz',
+        'nbsite >=0.6.1',
+        'pydata-sphinx-theme',
+        'myst-parser',
+        'nbconvert <6.0',
+        'graphviz',
+        'myst_nb ==0.12.2'
     ]
 }
 
@@ -33,7 +42,8 @@ setup_args = dict(
     name='param',
     version=get_setup_version("param"),
     description='Make your Python code clearer and more reliable by declaring Parameters.',
-    long_description=open('README.rst').read() if os.path.isfile('README.rst') else 'Consult README.rst',
+    long_description=open('README.md').read() if os.path.isfile('README.md') else 'Consult README.md',
+    long_description_content_type="text/markdown",
     author="HoloViz",
     author_email="developers@holoviz.org",
     maintainer="HoloViz",

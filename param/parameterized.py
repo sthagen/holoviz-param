@@ -706,9 +706,9 @@ class Parameter(object):
     # attributes.  Using __slots__ requires special support for
     # operations to copy and restore Parameters (e.g. for Python
     # persistent storage pickling); see __getstate__ and __setstate__.
-    __slots__ = ['name','_internal_name','default','doc',
-                 'precedence','instantiate','constant','readonly',
-                 'pickle_default_value','allow_None', 'per_instance',
+    __slots__ = ['name', '_internal_name', 'default', 'doc',
+                 'precedence', 'instantiate', 'constant', 'readonly',
+                 'pickle_default_value', 'allow_None', 'per_instance',
                  'watchers', 'owner', '_label']
 
     # Note: When initially created, a Parameter does not know which
@@ -717,45 +717,93 @@ class Parameter(object):
     # class is created, owner, name, and _internal_name are
     # set.
 
-    _serializers = {'json':serializer.JSONSerialization}
+    _serializers = {'json': serializer.JSONSerialization}
 
-    def __init__(self,default=None,doc=None,label=None,precedence=None,  # pylint: disable-msg=R0913
-                 instantiate=False,constant=False,readonly=False,
+    def __init__(self,default=None, doc=None, label=None, precedence=None,  # pylint: disable-msg=R0913
+                 instantiate=False, constant=False, readonly=False,
                  pickle_default_value=True, allow_None=False,
                  per_instance=True):
-        """
-        Initialize a new Parameter object: store the supplied attributes.
 
-        default: the owning class's value for the attribute
-        represented by this Parameter.
+        """Initialize a new Parameter object and store the supplied attributes:
 
-        precedence is a value, usually in the range 0.0 to 1.0, that
-        allows the order of Parameters in a class to be defined (for
-        e.g. in GUI menus). A negative precedence indicates a
-        parameter that should be hidden in e.g. GUI menus.
+        default: the owning class's value for the attribute represented
+        by this Parameter, which can be overridden in an instance.
 
-        default, doc, and precedence default to None. This is to allow
+        doc: docstring explaining what this parameter represents.
+
+        label: optional text label to be used when this Parameter is
+        shown in a listing. If no label is supplied, the attribute name
+        for this parameter in the owning Parameterized object is used.
+
+        precedence: a numeric value, usually in the range 0.0 to 1.0,
+        which allows the order of Parameters in a class to be defined in
+        a listing or e.g. in GUI menus. A negative precedence indicates
+        a parameter that should be hidden in such listings.
+
+        instantiate: controls whether the value of this Parameter will
+        be deepcopied when a Parameterized object is instantiated (if
+        True), or if the single default value will be shared by all
+        Parameterized instances (if False). For an immutable Parameter
+        value, it is best to leave instantiate at the default of
+        False, so that a user can choose to change the value at the
+        Parameterized instance level (affecting only that instance) or
+        at the Parameterized class or superclass level (affecting all
+        existing and future instances of that class or superclass). For
+        a mutable Parameter value, the default of False is also appropriate
+        if you want all instances to share the same value state, e.g. if
+        they are each simply referring to a single global object like
+        a singleton. If instead each Parameterized should have its own
+        independently mutable value, instantiate should be set to
+        True, but note that there is then no simple way to change the
+        value of this Parameter at the class or superclass level,
+        because each instance, once created, will then have an
+        independently instantiated value.
+
+        constant: if true, the Parameter value can be changed only at
+        the class level or in a Parameterized constructor call. The
+        value is otherwise constant on the Parameterized instance,
+        once it has been constructed.
+
+        readonly: if true, the Parameter value cannot ordinarily be
+        changed by setting the attribute at the class or instance
+        levels at all. The value can still be changed in code by
+        temporarily overriding the value of this slot and then
+        restoring it, which is useful for reporting values that the
+        _user_ should never change but which do change during code
+        execution.
+
+        pickle_default_value: whether the default value should be
+        pickled. Usually, you would want the default value to be pickled,
+        but there are rare cases where that would not be the case (e.g.
+        for file search paths that are specific to a certain system).
+
+        per_instance: whether a separate Parameter instance will be
+        created for every Parameterized instance. True by default.
+        If False, all instances of a Parameterized class will share
+        the same Parameter object, including all validation
+        attributes (bounds, etc.). See also instantiate, which is
+        conceptually similar but affects the Parameter value rather
+        than the Parameter object.
+
+        allow_None: if True, None is accepted as a valid value for
+        this Parameter, in addition to any other values that are
+        allowed. If the default value is defined as None, allow_None
+        is set to True automatically.
+
+        default, doc, and precedence all default to None, which allows
         inheritance of Parameter slots (attributes) from the owning-class'
         class hierarchy (see ParameterizedMetaclass).
-
-        per_instance defaults to True and controls whether a new
-        Parameter instance can be created for every Parameterized
-        instance. If False, all instances of a Parameterized class
-        will share the same parameter object, including all validation
-        attributes.
-
-        In rare cases where the default value should not be pickled,
-        set pickle_default_value=False (e.g. for file search paths).
         """
+
         self.name = None
-        self._internal_name = None
         self.owner = None
-        self._label = label
         self.precedence = precedence
         self.default = default
         self.doc = doc
         self.constant = constant or readonly # readonly => constant
         self.readonly = readonly
+        self._label = label
+        self._internal_name = None
         self._set_instantiate(instantiate)
         self.pickle_default_value = pickle_default_value
         self.allow_None = (default is None or allow_None)
@@ -802,19 +850,15 @@ class Parameter(object):
         else:
             self.instantiate = instantiate or self.constant # pylint: disable-msg=W0201
 
-
-    # TODO: quick trick to allow subscription to the setting of
-    # parameter metadata. ParameterParameter?
-
-    # Note that unlike with parameter value setting, there's no access
-    # to the Parameterized instance, so no per-instance subscription.
-
-    def __setattr__(self,attribute,value):
-        implemented = (attribute!="default" and hasattr(self,'watchers') and attribute in self.watchers)
+    def __setattr__(self, attribute, value):
+        implemented = (attribute != "default" and hasattr(self, 'watchers') and attribute in self.watchers)
+        slot_attribute = attribute in self.__slots__
         try:
-            old = getattr(self,attribute) if implemented else NotImplemented
+            old = getattr(self, attribute) if implemented else NotImplemented
+            if slot_attribute:
+                self._on_set(attribute, old, value)
         except AttributeError as e:
-            if attribute in self.__slots__:
+            if slot_attribute:
                 # If Parameter slot is defined but an AttributeError was raised
                 # we are in __setstate__ and watchers should not be triggered
                 old = NotImplemented
@@ -833,8 +877,13 @@ class Parameter(object):
         if not self.owner.param._BATCH_WATCH:
             self.owner.param._batch_call_watchers()
 
+    def _on_set(self, attribute, old, value):
+        """
+        Can be overridden on subclasses to handle changes when parameter
+        attribute is set.
+        """
 
-    def __get__(self,obj,objtype): # pylint: disable-msg=W0613
+    def __get__(self, obj, objtype): # pylint: disable-msg=W0613
         """
         Return the value for this Parameter.
 
@@ -855,9 +904,8 @@ class Parameter(object):
             result = obj.__dict__.get(self._internal_name,self.default)
         return result
 
-
     @instance_descriptor
-    def __set__(self,obj,val):
+    def __set__(self, obj, val):
         """
         Set the value for this Parameter.
 
@@ -937,18 +985,18 @@ class Parameter(object):
         if not obj.param._BATCH_WATCH:
             obj.param._batch_call_watchers()
 
+    def _validate_value(self, value, allow_None):
+        """Implements validation for parameter value"""
 
     def _validate(self, val):
-        """Implements validation for the parameter"""
-
+        """Implements validation for the parameter value and attributes"""
+        self._validate_value(val, self.allow_None)
 
     def _post_setter(self, obj, val):
         """Called after the parameter value has been validated and set"""
 
-
     def __delete__(self,obj):
         raise TypeError("Cannot delete '%s': Parameters deletion not allowed." % self.name)
-
 
     def _set_names(self, attrib_name):
         if None not in (self.owner, self.name) and attrib_name != self.name:
@@ -962,7 +1010,6 @@ class Parameter(object):
                                     self.owner.name, attrib_name))
         self.name = attrib_name
         self._internal_name = "_%s_param_value" % attrib_name
-
 
     def __getstate__(self):
         """
@@ -1006,7 +1053,6 @@ class String(Parameter):
            ip_regex = '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
            super(IPAddress, self).__init__(default=default, regex=ip_regex, **kwargs)
 
-
     """
 
     __slots__ = ['regex']
@@ -1017,15 +1063,23 @@ class String(Parameter):
         self.allow_None = (default is None or allow_None)
         self._validate(default)
 
-    def _validate(self, val):
-        if self.allow_None and val is None:
+    def _validate_regex(self, val, regex):
+        if (val is None and self.allow_None):
             return
+        if regex is not None and re.match(regex, val) is None:
+            raise ValueError("String parameter %r value %r does not match regex %r."
+                             % (self.name, val, regex))
 
+    def _validate_value(self, val, allow_None):
+        if allow_None and val is None:
+            return
         if not isinstance(val, basestring):
-            raise ValueError("String '%s' only takes a string value."%self.name)
+            raise ValueError("String parameter %r only takes a string value, "
+                             "not value of type %s." % (self.name, type(val)))
 
-        if self.regex is not None and re.match(self.regex, val) is None:
-            raise ValueError("String '%s': '%s' does not match regex '%s'."%(self.name,val,self.regex))
+    def _validate(self, val):
+        self._validate_value(val, self.allow_None)
+        self._validate_regex(val, self.regex)
 
 
 class shared_parameters(object):
@@ -1927,13 +1981,12 @@ class Parameters(object):
         """
         self = self_.self
         d = {}
-        for param_name,param in self.param.objects('existing').items():
+        for param_name, param in self.param.objects('existing').items():
             if param.constant:
                 pass
-            elif param.instantiate:
-                self.param._instantiate_param(param,dict_=d,key=param_name)
-            else:
-                d[param_name]=param.default
+            if param.instantiate:
+                self.param._instantiate_param(param, dict_=d, key=param_name)
+            d[param_name] = param.default
         return d
 
     # CEBALERT: designed to avoid any processing unless the print
@@ -2228,7 +2281,7 @@ class ParameterizedMetaclass(type):
         Note that instantiate is handled differently: if there is a
         parameter with the same name in one of the superclasses with
         instantiate set to True, this parameter will inherit
-        instatiate=True.
+        instantiate=True.
         """
         # get all relevant slots (i.e. slots defined in all
         # superclasses of this parameter)
@@ -2451,9 +2504,33 @@ script_repr_reg[FunctionType]=function_script_repr
 dbprint_prefix=None
 
 
+# Copy of Python 3.2 reprlib's recursive_repr but allowing extra arguments
+if sys.version_info.major >= 3:
+    from threading import get_ident
+    def recursive_repr(fillvalue='...'):
+        'Decorator to make a repr function return fillvalue for a recursive call'
 
+        def decorating_function(user_function):
+            repr_running = set()
 
+            def wrapper(self, *args, **kwargs):
+                key = id(self), get_ident()
+                if key in repr_running:
+                    return fillvalue
+                repr_running.add(key)
+                try:
+                    result = user_function(self, *args, **kwargs)
+                finally:
+                    repr_running.discard(key)
+                return result
+            return wrapper
 
+        return decorating_function
+else:
+    def recursive_repr(fillvalue='...'):
+        def decorating_function(user_function):
+            return user_function
+        return decorating_function
 
 
 @add_metaclass(ParameterizedMetaclass)
@@ -2604,6 +2681,7 @@ class Parameterized(object):
             setattr(self,name,value)
         self.initialized=True
 
+    @recursive_repr()
     def __repr__(self):
         """
         Provide a nearly valid Python representation that could be used to recreate
@@ -2631,6 +2709,7 @@ class Parameterized(object):
         return self.pprint(imports,prefix, unknown_value=None, qualify=True,
                            separator="\n")
 
+    @recursive_repr()
     # CEBALERT: not yet properly documented
     def pprint(self, imports=None, prefix=" ", unknown_value='<?>',
                qualify=False, separator=""):
