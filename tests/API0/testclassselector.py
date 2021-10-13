@@ -7,6 +7,8 @@ from numbers import Number
 
 import param
 
+if not hasattr(unittest.TestCase, 'assertRaisesRegex'):
+    unittest.TestCase.assertRaisesRegex = unittest.TestCase.assertRaisesRegexp
 
 class TestClassSelectorParameters(unittest.TestCase):
 
@@ -26,7 +28,7 @@ class TestClassSelectorParameters(unittest.TestCase):
 
     def test_single_class_instance_error(self):
         exception = "ClassSelector parameter 'e' value must be an instance of int, not 'a'."
-        with self.assertRaisesRegexp(ValueError, exception):
+        with self.assertRaisesRegex(ValueError, exception):
             self.P(e='a')
 
     def test_single_class_type_constructor(self):
@@ -35,7 +37,7 @@ class TestClassSelectorParameters(unittest.TestCase):
 
     def test_single_class_type_error(self):
         exception = "ClassSelector parameter 'f' must be a subclass of Number, not 'str'."
-        with self.assertRaisesRegexp(ValueError, exception):
+        with self.assertRaisesRegex(ValueError, exception):
             self.P(f=str)
 
     def test_multiple_class_instance_constructor1(self):
@@ -47,8 +49,8 @@ class TestClassSelectorParameters(unittest.TestCase):
         self.assertEqual(p.g, 'A')
 
     def test_multiple_class_instance_error(self):
-        exception = "ClassSelector parameter 'g' value must be an instance of \(int, str\), not 3.0."
-        with self.assertRaisesRegexp(ValueError, exception):
+        exception = r"ClassSelector parameter 'g' value must be an instance of \(int, str\), not 3.0."
+        with self.assertRaisesRegex(ValueError, exception):
             self.P(g=3.0)
 
     def test_multiple_class_type_constructor1(self):
@@ -60,6 +62,6 @@ class TestClassSelectorParameters(unittest.TestCase):
         self.assertEqual(p.h, str)
 
     def test_multiple_class_type_error(self):
-        exception = "ClassSelector parameter 'h' must be a subclass of \(int, str\), not 'float'."
-        with self.assertRaisesRegexp(ValueError, exception):
+        exception = r"ClassSelector parameter 'h' must be a subclass of \(int, str\), not 'float'."
+        with self.assertRaisesRegex(ValueError, exception):
             self.P(h=float)

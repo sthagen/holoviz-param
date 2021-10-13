@@ -34,6 +34,11 @@ try:
 except:
     param_pager = None
 
+try:
+    from inspect import getfullargspec
+except:
+    from inspect import getargspec as getfullargspec # python2
+
 basestring = basestring if sys.version_info[0]==2 else str # noqa: it is defined
 
 VERBOSE = INFO - 1
@@ -72,6 +77,11 @@ docstring_describe_params = True  # Add parameter description to class
 object_count = 0
 warning_count = 0
 
+class _Undefined:
+    """
+    Dummy value to signal completely undefined values rather than
+    simple None values.
+    """
 
 @contextmanager
 def logging_level(level):
@@ -95,13 +105,11 @@ def logging_level(level):
 
 
 @contextmanager
-def batch_watch(parameterized, enable=True, run=True):
+def _batch_call_watchers(parameterized, enable=True, run=True):
     """
-    Context manager to batch watcher events on a parameterized object.
-    The context manager will queue any events triggered by setting a
-    parameter on the supplied parameterized object and dispatch them
-    all at once when the context manager exits. If run=False the
-    queued events are not dispatched and should be processed manually.
+    Internal version of batch_call_watchers, adding control over queueing and running.
+    Only actually batches events if enable=True; otherwise a no-op. Only actually
+    calls the accumulated watchers on exit if run=True; otherwise they remain queued.
     """
     BATCH_WATCH = parameterized.param._BATCH_WATCH
     parameterized.param._BATCH_WATCH = enable or parameterized.param._BATCH_WATCH
@@ -110,6 +118,26 @@ def batch_watch(parameterized, enable=True, run=True):
     finally:
         parameterized.param._BATCH_WATCH = BATCH_WATCH
         if run and not BATCH_WATCH:
+            parameterized.param._batch_call_watchers()
+
+batch_watch = _batch_call_watchers # PARAM2_DEPRECATION: Remove this compatibility alias for param 2.0 and later.
+
+@contextmanager
+def batch_call_watchers(parameterized):
+    """
+    Context manager to batch events to provide to Watchers on a
+    parameterized object.  This context manager queues any events
+    triggered by setting a parameter on the supplied parameterized
+    object, saving them up to dispatch them all at once when the
+    context manager exits.
+    """
+    BATCH_WATCH = parameterized.param._BATCH_WATCH
+    parameterized.param._BATCH_WATCH = True
+    try:
+        yield
+    finally:
+        parameterized.param._BATCH_WATCH = BATCH_WATCH
+        if not BATCH_WATCH:
             parameterized.param._batch_call_watchers()
 
 
@@ -161,7 +189,7 @@ def classlist(class_):
     """
     Return a list of the class hierarchy above (and including) the given class.
 
-    Same as inspect.getmro(class_)[::-1]
+    Same as `inspect.getmro(class_)[::-1]`
     """
     return inspect.getmro(class_)[::-1]
 
@@ -187,7 +215,7 @@ def descendents(class_):
 
 def get_all_slots(class_):
     """
-    Return a list of slot names for slots defined in class_ and its
+    Return a list of slot names for slots defined in `class_` and its
     superclasses.
     """
     # A subclass's __slots__ attribute does not contain slots defined
@@ -305,7 +333,7 @@ def iscoroutinefunction(function):
     """
     if not hasattr(inspect, 'iscoroutinefunction'):
         return False
-    return inspect.iscoroutinefunction(function)
+    return inspect.isasyncgenfunction(function) or inspect.iscoroutinefunction(function)
 
 
 def instance_descriptor(f):
@@ -343,12 +371,13 @@ def depends(func, *dependencies, **kw):
     """
 
     # python3 would allow kw-only args
-    # (i.e. "func,*dependencies,watch=False" rather than **kw and the check below)
-    watch = kw.pop("watch",False)
+    # (i.e. "func, *dependencies, watch=False" rather than **kw and the check below)
+    watch = kw.pop("watch", False)
+    on_init = kw.pop("on_init", False)
 
     @wraps(func)
-    def _depends(*args,**kw):
-        return func(*args,**kw)
+    def _depends(*args, **kw):
+        return func(*args, **kw)
 
     deps = list(dependencies)+list(kw.values())
     string_specs = False
@@ -393,7 +422,7 @@ def depends(func, *dependencies, **kw):
 
     _dinfo = getattr(func, '_dinfo', {})
     _dinfo.update({'dependencies': dependencies,
-                   'kw': kw, 'watch': watch})
+                   'kw': kw, 'watch': watch, 'on_init': on_init})
 
     _depends._dinfo = _dinfo
 
@@ -495,37 +524,208 @@ def output(func, *output, **kw):
     return _output
 
 
-def _params_depended_on(minfo):
-    params = []
-    dinfo = getattr(minfo.method,"_dinfo", {})
+def _parse_dependency_spec(spec):
+    """
+    Parses param.depends specifications into three components:
+
+    1. The dotted path to the sub-object
+    2. The attribute being depended on, i.e. either a parameter or method
+    3. The parameter attribute being depended on
+    """
+    assert spec.count(":")<=1
+    spec = spec.strip()
+    m = re.match("(?P<path>[^:]*):?(?P<what>.*)", spec)
+    what = m.group('what')
+    path = "."+m.group('path')
+    m = re.match(r"(?P<obj>.*)(\.)(?P<attr>.*)", path)
+    obj = m.group('obj')
+    attr = m.group("attr")
+    return obj or None, attr, what or 'value'
+
+
+def _params_depended_on(minfo, dynamic=True):
+    """
+    Resolves dependencies declared on a Parameterized method.
+    Dynamic dependencies, i.e. dependencies on sub-objects which may
+    or may not yet be available, are only resolved if dynamic=True.
+
+    Returns lists of concrete dependencies on available parameters
+    and dynamic dependencies specifications which have to resolved
+    if the referenced sub-objects are defined.
+    """
+    deps, dynamic_deps = [], []
+    dinfo = getattr(minfo.method, "_dinfo", {})
     for d in dinfo.get('dependencies', list(minfo.cls.param)):
-        things = (minfo.inst or minfo.cls).param._spec_to_obj(d)
-        for thing in things:
-            if isinstance(thing,PInfo):
-                params.append(thing)
+        ddeps, ddynamic_deps = (minfo.inst or minfo.cls).param._spec_to_obj(d, dynamic)
+        dynamic_deps += ddynamic_deps
+        for dep in ddeps:
+            if isinstance(dep, PInfo):
+                deps.append(dep)
             else:
-                params += _params_depended_on(thing)
-    return params
+                method_deps, method_dynamic_deps = _params_depended_on(dep, dynamic)
+                deps += method_deps
+                dynamic_deps += method_dynamic_deps
+    return deps, dynamic_deps
 
 
-def _m_caller(self, n):
-    function = getattr(self, n)
+def _resolve_mcs_deps(obj, resolved, dynamic):
+    """
+    Resolves constant and dynamic parameter dependencies previously
+    obtained using the _params_depended_on function. Existing resolved
+    dependencies are updated with a supplied parameter instance while
+    dynamic dependencies are resolved if possible.
+    """
+    dependencies = []
+    for dep in resolved:
+        if not issubclass(type(obj), dep.cls):
+            dependencies.append(dep)
+            continue
+        inst = obj if dep.inst is None else dep.inst
+        dep = PInfo(inst=inst, cls=dep.cls, name=dep.name,
+                    pobj=inst.param[dep.name], what=dep.what)
+        dependencies.append(dep)
+    for dep in dynamic:
+        subresolved, _ = obj.param._spec_to_obj(dep.spec)
+        for subdep in subresolved:
+            if isinstance(subdep, PInfo):
+                dependencies.append(subdep)
+            else:
+                dependencies += _params_depended_on(subdep)[0]
+    return dependencies
+
+
+def _skip_event(*events, **kwargs):
+    """
+    Checks whether a subobject event should be skipped.
+    Returns True if all the values on the new subobject
+    match the values on the previous subobject.
+    """
+    what = kwargs.get('what', 'value')
+    changed = kwargs.get('changed')
+    if changed is None:
+        return False
+    for e in events:
+        for p in changed:
+            if what == 'value':
+                old = _Undefined if e.old is None else _getattrr(e.old, p, None)
+                new = _Undefined if e.new is None else _getattrr(e.new, p, None)
+            else:
+                old = _Undefined if e.old is None else _getattrr(e.old.param[p], what, None)
+                new = _Undefined if e.new is None else _getattrr(e.new.param[p], what, None)
+            if not Comparator.is_equal(old, new):
+                return False
+    return True
+
+
+def _m_caller(self, method_name, what='value', changed=None, callback=None):
+    """
+    Wraps a method call adding support for scheduling a callback
+    before it is executed and skipping events if a subobject has
+    changed but its values have not.
+    """
+    function = getattr(self, method_name)
     if iscoroutinefunction(function):
         import asyncio
         @asyncio.coroutine
         def caller(*events):
-            yield function()
+            if callback: callback(*events)
+            if not _skip_event(*events, what=what, changed=changed):
+                yield function()
     else:
         def caller(*events):
-            return function()
-    caller._watcher_name = n
+            if callback: callback(*events)
+            if not _skip_event(*events, what=what, changed=changed):
+                return function()
+    caller._watcher_name = method_name
     return caller
 
 
-PInfo = namedtuple("PInfo","inst cls name pobj what")
-MInfo = namedtuple("MInfo","inst cls name method")
-Event = namedtuple("Event","what name obj cls old new type")
-Watcher = namedtuple("Watcher","inst cls fn mode onlychanged parameter_names what queued")
+def _add_doc(obj, docstring):
+    """Add a docstring to a namedtuple, if on python3 where that's allowed"""
+    if sys.version_info[0]>2:
+        obj.__doc__ = docstring
+
+
+PInfo = namedtuple("PInfo", "inst cls name pobj what"); _add_doc(PInfo,
+    """
+    Object describing something being watched about a Parameter.
+
+    `inst`: Parameterized instance owning the Parameter, or None
+
+    `cls`: Parameterized class owning the Parameter
+
+    `name`: Name of the Parameter being watched
+
+    `pobj`: Parameter object being watched
+
+    `what`: What is being watched on the Parameter (either 'value' or a slot name)
+    """)
+
+MInfo = namedtuple("MInfo", "inst cls name method"); _add_doc(MInfo,
+    """
+    Object describing a Parameterized method being watched.
+
+    `inst`: Parameterized instance owning the method, or None
+
+    `cls`: Parameterized class owning the method
+
+    `name`: Name of the method being watched
+
+    `method`: bound method of the object being watched
+    """)
+
+DInfo = namedtuple("DInfo", "spec"); _add_doc(DInfo,
+    """
+    Object describing dynamic dependencies.
+    `spec`: Dependency specification to resolve
+    """)
+
+Event = namedtuple("Event", "what name obj cls old new type"); _add_doc(Event,
+    """
+    Object representing an event that triggers a Watcher.
+
+    `what`: What is being watched on the Parameter (either value or a slot name)
+
+    `name`: Name of the Parameter that was set or triggered
+
+    `obj`: Parameterized instance owning the watched Parameter, or None
+
+    `cls`: Parameterized class owning the watched Parameter
+
+    `old`: Previous value of the item being watched
+
+    `new`: New value of the item being watched
+
+    `type`: `triggered` if this event was triggered explicitly), `changed` if
+    the item was set and watching for `onlychanged`, `set` if the item was set,
+    or  None if type not yet known
+    """)
+
+Watcher = namedtuple("Watcher", "inst cls fn mode onlychanged parameter_names what queued precedence"); _add_doc(Watcher,
+    """
+    Object declaring a callback function to invoke when an Event is triggered on a watched item.
+
+    `inst`: Parameterized instance owning the watched Parameter, or None
+
+    `cls`: Parameterized class owning the watched Parameter
+
+    `fn`: Callback function to invoke when triggered by a watched Parameter
+
+    `mode`: 'args' for param.watch (call `fn` with PInfo object positional args), or
+    'kwargs' for param.watch_values (call `fn` with <param_name>:<new_value> keywords)
+
+    `onlychanged`: If True, only trigger for actual changes, not setting to the current value
+
+    `parameter_names`: List of Parameters to watch, by name
+
+    `what`: What to watch on the Parameters (either 'value' or a slot name)
+
+    `queued`: Immediately invoke callbacks triggered during processing of an Event (if False), or
+            queue them up for processing later, after this event has been handled (if True)
+
+    `precedence`: A numeric value which determines the precedence of the watcher.
+                  Lower precedence values are executed with higher priority.
+    """)
 
 class ParameterMetaclass(type):
     """
@@ -588,18 +788,17 @@ class Parameter(object):
     objects Foo and Bar, such that Bar has a parameter delta, Foo is a
     subclass of Bar, and Foo has parameters alpha, sigma, and gamma
     (and delta inherited from Bar).  She would begin her class
-    definitions with something like this:
+    definitions with something like this::
 
-    class Bar(Parameterized):
-        delta = Parameter(default=0.6, doc='The difference between steps.')
-        ...
-
-    class Foo(Bar):
-        alpha = Parameter(default=0.1, doc='The starting value.')
-        sigma = Parameter(default=0.5, doc='The standard deviation.',
-                          constant=True)
-        gamma = Parameter(default=1.0, doc='The ending value.')
-        ...
+       class Bar(Parameterized):
+           delta = Parameter(default=0.6, doc='The difference between steps.')
+           ...
+       class Foo(Bar):
+           alpha = Parameter(default=0.1, doc='The starting value.')
+           sigma = Parameter(default=0.5, doc='The standard deviation.',
+                           constant=True)
+           gamma = Parameter(default=1.0, doc='The ending value.')
+           ...
 
     Class Foo would then have four parameters, with delta defaulting
     to 0.6.
@@ -610,7 +809,7 @@ class Parameter(object):
        constructed: The default constructor for Foo (and Bar) will
        accept arbitrary keyword arguments, each of which can be used
        to specify the value of a Parameter of Foo (or any of Foo's
-       superclasses).  E.g., if a script does this:
+       superclasses).  E.g., if a script does this::
 
            myfoo = Foo(alpha=0.5)
 
@@ -627,7 +826,7 @@ class Parameter(object):
     2. A Parameterized class need specify only the attributes of a
        Parameter whose values differ from those declared in
        superclasses; the other values will be inherited.  E.g. if Foo
-       declares
+       declares::
 
         delta = Parameter(default=0.2)
 
@@ -826,8 +1025,8 @@ class Parameter(object):
         if mode not in  self._serializers:
             raise KeyError('Mode %r not in available serialization formats %r'
                            % (mode, list(self._serializers.keys())))
-        return self._serializers[mode].parameter_schema(self.__class__.__name__, self,
-                                                        safe=safe, subset=subset)
+        return self._serializers[mode].param_schema(self.__class__.__name__, self,
+                                                    safe=safe, subset=subset)
 
     @property
     def label(self):
@@ -851,6 +1050,10 @@ class Parameter(object):
             self.instantiate = instantiate or self.constant # pylint: disable-msg=W0201
 
     def __setattr__(self, attribute, value):
+        if attribute == 'name' and getattr(self, 'name', None) and value != self.name:
+            raise AttributeError("Parameter name cannot be modified after "
+                                 "it has been bound to a Parameterized.")
+
         implemented = (attribute != "default" and hasattr(self, 'watchers') and attribute in self.watchers)
         slot_attribute = attribute in self.__slots__
         try:
@@ -870,7 +1073,7 @@ class Parameter(object):
         if old is NotImplemented:
             return
 
-        event = Event(what=attribute,name=self.name, obj=None, cls=self.owner,
+        event = Event(what=attribute, name=self.name, obj=None, cls=self.owner,
                       old=old, new=value, type=None)
         for watcher in self.watchers[attribute]:
             self.owner.param._call_watcher(watcher, event)
@@ -916,7 +1119,6 @@ class Parameter(object):
         this Parameter on that instance (i.e. in the instance's
         __dict__, under the parameter's internal_name).
 
-
         If the Parameter's constant attribute is True, only allows
         the value to be set for a Parameterized class or on
         uninitialized Parameterized instances.
@@ -960,10 +1162,15 @@ class Parameter(object):
                 _old = self.default
                 self.default = val
             else:
-                _old = obj.__dict__.get(self._internal_name,self.default)
+                _old = obj.__dict__.get(self._internal_name, self.default)
                 obj.__dict__[self._internal_name] = val
 
         self._post_setter(obj, val)
+
+        if obj is not None:
+            if not getattr(obj, 'initialized', False):
+                return
+            obj.param._update_deps(self.name)
 
         if obj is None:
             watchers = self.watchers.get("value")
@@ -975,12 +1182,15 @@ class Parameter(object):
             watchers = None
 
         obj = self.owner if obj is None else obj
+
         if obj is None or not watchers:
             return
 
-        event = Event(what='value',name=self.name, obj=obj, cls=self.owner,
+        event = Event(what='value', name=self.name, obj=obj, cls=self.owner,
                       old=_old, new=val, type=None)
-        for watcher in watchers:
+
+        # Copy watchers here since they may be modified inplace during iteration
+        for watcher in sorted(watchers, key=lambda w: w.precedence):
             obj.param._call_watcher(watcher, event)
         if not obj.param._BATCH_WATCH:
             obj.param._batch_call_watchers()
@@ -1042,7 +1252,7 @@ class Parameter(object):
 
 # Define one particular type of Parameter that is used in this file
 class String(Parameter):
-    """
+    r"""
     A String Parameter, with a default value and optional regular expression (regex) matching.
 
     Example of using a regex to implement IPv4 address matching::
@@ -1050,7 +1260,7 @@ class String(Parameter):
       class IPAddress(String):
         '''IPv4 address as a string (dotted decimal notation)'''
        def __init__(self, default="0.0.0.0", allow_None=False, **kwargs):
-           ip_regex = '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+           ip_regex = r'^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
            super(IPAddress, self).__init__(default=default, regex=ip_regex, **kwargs)
 
     """
@@ -1422,6 +1632,111 @@ class Parameters(object):
             # should it instead keep the same name?
             new_object.param._generate_name()
 
+    def _update_deps(self_, attribute=None, init=False):
+        obj = self_.self
+        init_methods = []
+        for method, queued, on_init, constant, dynamic in type(obj).param._depends['watch']:
+            # On initialization set up constant watchers otherwise
+            # clean up previous dynamic watchers for the updated attribute
+            dynamic = [d for d in dynamic if attribute is None or d.spec.startswith(attribute)]
+            if init:
+                constant_grouped = defaultdict(list)
+                for dep in _resolve_mcs_deps(obj, constant, []):
+                    constant_grouped[(id(dep.inst), id(dep.cls), dep.what)].append((None, dep))
+                for group in constant_grouped.values():
+                    self_._watch_group(obj, method, queued, group)
+                m = getattr(self_.self, method)
+                if on_init and m not in init_methods:
+                    init_methods.append(m)
+            elif dynamic:
+                for w in obj._dynamic_watchers.pop(method, []):
+                    (w.inst or w.cls).param.unwatch(w)
+            else:
+                continue
+
+            # Resolve dynamic dependencies one-by-one to be able to trace their watchers
+            grouped = defaultdict(list)
+            for ddep in dynamic:
+                for dep in _resolve_mcs_deps(obj, [], [ddep]):
+                    grouped[(id(dep.inst), id(dep.cls), dep.what)].append((ddep, dep))
+
+            for group in grouped.values():
+                watcher = self_._watch_group(obj, method, queued, group, attribute)
+                obj._dynamic_watchers[method].append(watcher)
+        for m in init_methods:
+            m()
+
+    def _resolve_dynamic_deps(self, obj, dynamic_dep, param_dep, attribute):
+        """
+        If a subobject whose parameters are being depended on changes
+        we should only trigger events if the actual parameter values
+        of the new object differ from those on the old subobject,
+        therefore we accumulate parameters to compare on a subobject
+        change event.
+
+        Additionally we need to make sure to notify the parent object
+        if a subobject changes so the dependencies can be
+        reinitialized so we return a callback which updates the
+        dependencies.
+        """
+        subobj = obj
+        subobjs = [obj]
+        for subpath in dynamic_dep.spec.split('.')[:-1]:
+            subobj = getattr(subobj, subpath.split(':')[0], None)
+            subobjs.append(subobj)
+
+        dep_obj = (param_dep.inst or param_dep.cls)
+        if dep_obj not in subobjs[:-1]:
+            return None, None, param_dep.what
+
+        depth = subobjs.index(dep_obj)
+        callback = None
+        if depth > 0:
+            def callback(*events):
+                """
+                If a subobject changes we need to notify the main
+                object to update the dependencies.
+                """
+                obj.param._update_deps(attribute)
+
+        p = '.'.join(dynamic_dep.spec.split(':')[0].split('.')[depth+1:])
+        if p == 'param':
+            subparams = [sp for sp in list(subobjs[-1].param)]
+        else:
+            subparams = [p]
+
+        if ':' in dynamic_dep.spec:
+            what = dynamic_dep.spec.split(':')[-1]
+        else:
+            what = param_dep.what
+
+        return subparams, callback, what
+
+    def _watch_group(self_, obj, name, queued, group, attribute=None):
+        """
+        Sets up a watcher for a group of dependencies. Ensures that
+        if the dependency was dynamically generated we check whether
+        a subobject change event actually causes a value change and
+        that we update the existing watchers, i.e. clean up watchers
+        on the old subobject and create watchers on the new subobject.
+        """
+        dynamic_dep, param_dep = group[0]
+        dep_obj = (param_dep.inst or param_dep.cls)
+        params = []
+        for _, g in group:
+            if g.name not in params:
+                params.append(g.name)
+
+        if dynamic_dep is None:
+            subparams, callback, what = None, None, param_dep.what
+        else:
+            subparams, callback, what = self_._resolve_dynamic_deps(
+                obj, dynamic_dep, param_dep, attribute)
+
+        mcaller = _m_caller(obj, name, what, subparams, callback)
+        return dep_obj.param._watch(
+            mcaller, params, param_dep.what, queued=queued, precedence=-1)
+
     # Classmethods
 
     def print_param_defaults(self_):
@@ -1628,7 +1943,7 @@ class Parameters(object):
 
     def _call_watcher(self_, watcher, event):
         """
-        Invoke the given the watcher appropriately given a Event object.
+        Invoke the given watcher appropriately given an Event object.
         """
         if self_.self_or_cls.param._TRIGGER:
             pass
@@ -1641,7 +1956,7 @@ class Parameters(object):
                 self_._watchers.append(watcher)
         else:
             event = self_._update_event_type(watcher, event, self_.self_or_cls.param._TRIGGER)
-            with batch_watch(self_.self_or_cls, enable=watcher.queued, run=False):
+            with _batch_call_watchers(self_.self_or_cls, enable=watcher.queued, run=False):
                 self_._execute_watcher(watcher, (event,))
 
     def _batch_call_watchers(self_):
@@ -1656,12 +1971,12 @@ class Parameters(object):
             self_.self_or_cls.param._events = []
             self_.self_or_cls.param._watchers = []
 
-            for watcher in watchers:
+            for watcher in sorted(watchers, key=lambda w: w.precedence):
                 events = [self_._update_event_type(watcher, event_dict[(name, watcher.what)],
                                                    self_.self_or_cls.param._TRIGGER)
                           for name in watcher.parameter_names
                           if (name, watcher.what) in event_dict]
-                with batch_watch(self_.self_or_cls, enable=watcher.queued, run=False):
+                with _batch_call_watchers(self_.self_or_cls, enable=watcher.queued, run=False):
                     self_._execute_watcher(watcher, events)
 
     def set_dynamic_time_fn(self_,time_fn,sublistattr=None):
@@ -1769,7 +2084,6 @@ class Parameters(object):
         vals.sort(key=itemgetter(0))
         return vals
 
-
     def force_new_dynamic_value(self_, name): # pylint: disable-msg=E0213
         """
         Force a new value to be generated for the dynamic attribute
@@ -1794,7 +2108,6 @@ class Parameters(object):
             return param_obj.__get__(slf, cls)
         else:
             return param_obj._force(slf, cls)
-
 
     def get_value_generator(self_,name): # pylint: disable-msg=E0213
         """
@@ -1855,10 +2168,18 @@ class Parameters(object):
 
         return value
 
-
-    def params_depended_on(self_,name):
-        return _params_depended_on(MInfo(cls=self_.cls,inst=self_.self,name=name,method=getattr(self_.self_or_cls,name)))
-
+    def params_depended_on(self_, name):
+        """
+        Given the name of a method, returns a PInfo object for each dependency
+        of this method. See help(PInfo) for the contents of these objects.
+        """
+        method = getattr(self_.self_or_cls, name)
+        minfo = MInfo(cls=self_.cls, inst=self_.self, name=name,
+                      method=method)
+        deps, dynamic = _params_depended_on(minfo, dynamic=False)
+        if self_.self is None:
+            return deps
+        return _resolve_mcs_deps(self_.self, deps, dynamic)
 
     def outputs(self_):
         """
@@ -1879,47 +2200,90 @@ class Parameters(object):
                     outputs[name] = (otype, method, idx)
         return outputs
 
+    def _spec_to_obj(self_, spec, dynamic=True):
+        """
+        Resolves a dependency specification into lists of explicit
+        parameter dependencies and dynamic dependencies.
 
-    def _spec_to_obj(self_,spec):
-        # TODO: when we decide on spec, this method should be
-        # rewritten
+        Dynamic dependencies are specifications to be resolved when
+        the sub-object whose parameters are being depended on is
+        defined.
 
+        During class creation dynamic=False which means sub-object
+        dependencies are not resolved. At instance creation and
+        whenever a sub-object is set on an object this method will be
+        invoked to determine whether the dependency is available.
+
+        For sub-object dependencies we also return dependencies for
+        every part of the path, e.g. for a dependency specification
+        like "a.b.c" we return dependencies for sub-object "a" and the
+        sub-sub-object "b" in addition to the dependency on the actual
+        parameter "c" on object "b". This is to ensure that if a
+        sub-object is swapped out we are notified and can update the
+        dynamic dependency to the new object. Even if a sub-object
+        dependency can only partially resolved, e.g. if object "a"
+        does not yet have a sub-object "b" we must watch for changes
+        to "b" on sub-object "a" in case such a subobject is put in "b".
+        """
         if isinstance(spec, Parameter):
             inst = spec.owner if isinstance(spec.owner, Parameterized) else None
             cls = spec.owner if inst is None else type(inst)
             info = PInfo(inst=inst, cls=cls, name=spec.name,
                          pobj=spec, what='value')
-            return [info]
+            return [info], []
 
-        assert spec.count(":")<=1
+        obj, attr, what = _parse_dependency_spec(spec)
+        if obj is None:
+            src = self_.self_or_cls
+        elif not dynamic:
+            return [], [DInfo(spec=spec)]
+        else:
+            src = _getattrr(self_.self_or_cls, obj[1::], None)
+            if src is None:
+                path = obj[1:].split('.')
+                deps = []
+                # Attempt to partially resolve subobject path to ensure
+                # that if a subobject is later updated making the full
+                # subobject path available we have to be notified and
+                # set up watchers
+                if len(path) >= 1:
+                    sub_src = None
+                    subpath = path
+                    while sub_src is None and subpath:
+                        subpath = subpath[:-1]
+                        sub_src = _getattrr(self_.self_or_cls, '.'.join(subpath), None)
+                    if subpath:
+                        subdeps, _ = self_._spec_to_obj('.'.join(path[:len(subpath)+1]), dynamic)
+                        deps += subdeps
+                return deps, [DInfo(spec=spec)]
 
-        spec = spec.strip()
-        m = re.match("(?P<path>[^:]*):?(?P<what>.*)", spec)
-        what = m.group('what')
-        path = "."+m.group('path')
-        m = re.match(r"(?P<obj>.*)(\.)(?P<attr>.*)",path)
-        obj = m.group('obj')
-        attr = m.group("attr")
-
-        src = self_.self_or_cls if obj=='' else _getattrr(self_.self_or_cls,obj[1::])
-        cls,inst = (src, None) if isinstance(src, type) else (type(src), src)
-
+        cls, inst = (src, None) if isinstance(src, type) else (type(src), src)
         if attr == 'param':
-            dependencies = self_._spec_to_obj(obj[1:])
+            deps, dynamic_deps = self_._spec_to_obj(obj[1:], dynamic)
             for p in src.param:
-                dependencies += src.param._spec_to_obj(p)
-            return dependencies
+                param_deps, param_dynamic_deps = src.param._spec_to_obj(p, dynamic)
+                deps += param_deps
+                dynamic_deps += param_dynamic_deps
+            return deps, dynamic_deps
         elif attr in src.param:
-            what = what if what != '' else 'value'
             info = PInfo(inst=inst, cls=cls, name=attr,
                          pobj=src.param[attr], what=what)
-        else:
+        elif hasattr(src, attr):
             info = MInfo(inst=inst, cls=cls, name=attr,
-                         method=getattr(src,attr))
-        return [info]
+                         method=getattr(src, attr))
+        elif src.abstract:
+            return [], [DInfo(spec=spec)]
+        else:
+            raise AttributeError("Attribute %r could not be resolved on %s."
+                                 % (attr, src))
 
+        if obj is None:
+            return [info], []
+        deps, dynamic_deps = self_._spec_to_obj(obj[1:], dynamic)
+        deps.append(info)
+        return deps, dynamic_deps
 
-    def _watch(self_, action, watcher, what='value', operation='add'): #'add' | 'remove'
+    def _register_watcher(self_, action, watcher, what='value'):
         parameter_names = watcher.parameter_names
         for parameter_name in parameter_names:
             if parameter_name not in self_.cls.param:
@@ -1940,36 +2304,90 @@ class Parameters(object):
                     watchers[what] = []
                 getattr(watchers[what], action)(watcher)
 
-    def watch(self_,fn,parameter_names, what='value', onlychanged=True, queued=False):
+    def watch(self_, fn, parameter_names, what='value', onlychanged=True, queued=False, precedence=0):
+        """
+        Register the given callback function `fn` to be invoked for
+        events on the indicated parameters.
+
+        `what`: What to watch on each parameter; either the value (by
+        default) or else the indicated slot (e.g. 'constant').
+
+        `onlychanged`: By default, only invokes the function when the
+        watched item changes, but if `onlychanged=False` also invokes
+        it when the `what` item is set to its current value again.
+
+        `queued`: By default, additional watcher events generated
+        inside the callback fn are dispatched immediately, effectively
+        doing depth-first processing of Watcher events. However, in
+        certain scenarios, it is helpful to wait to dispatch such
+        downstream events until all events that triggered this watcher
+        have been processed. In such cases setting `queued=True` on
+        this Watcher will queue up new downstream events generated
+        during `fn` until `fn` completes and all other watchers
+        invoked by that same event have finished executing),
+        effectively doing breadth-first processing of Watcher events.
+
+        `precedence`: Declares a precedence level for the Watcher that
+        determines the priority with which the callback is executed.
+        Lower precedence levels are executed earlier. Negative
+        precedences are reserved for internal Watchers, i.e. those
+        set up by param.depends.
+
+        When the `fn` is called, it will be provided the relevant
+        Event objects as positional arguments, which allows it to
+        determine which of the possible triggering events occurred.
+
+        Returns a Watcher object.
+
+        See help(Watcher) and help(Event) for the contents of those objects.
+        """
+        if precedence < 0:
+            raise ValueError("User-defined watch callbacks must declare "
+                             "a positive precedence. Negative precedences "
+                             "are reserved for internal Watchers.")
+        return self_._watch(fn, parameter_names, what, onlychanged, queued, precedence)
+
+    def _watch(self_, fn, parameter_names, what='value', onlychanged=True, queued=False, precedence=-1):
         parameter_names = tuple(parameter_names) if isinstance(parameter_names, list) else (parameter_names,)
         watcher = Watcher(inst=self_.self, cls=self_.cls, fn=fn, mode='args',
                           onlychanged=onlychanged, parameter_names=parameter_names,
-                          what=what, queued=queued)
-        self_._watch('append', watcher, what)
+                          what=what, queued=queued, precedence=precedence)
+        self_._register_watcher('append', watcher, what)
         return watcher
 
-    def unwatch(self_,watcher):
+    def unwatch(self_, watcher):
         """
-        Unwatch watchers set either with watch or watch_values.
+        Remove the given Watcher object (from `watch` or `watch_values`) from this object's list.
         """
         try:
-            self_._watch('remove',watcher)
-        except:
+            self_._register_watcher('remove', watcher, what=watcher.what)
+        except Exception:
             self_.warning('No such watcher {watcher} to remove.'.format(watcher=watcher))
 
+    def watch_values(self_, fn, parameter_names, what='value', onlychanged=True, queued=False, precedence=0):
+        """
+        Easier-to-use version of `watch` specific to watching for changes in parameter values.
 
-    def watch_values(self_, fn, parameter_names, what='value', onlychanged=True, queued=False):
-        parameter_names = tuple(parameter_names) if isinstance(parameter_names, list) else (parameter_names,)
+        Only allows `what` to be 'value', and invokes the callback `fn` using keyword
+        arguments <param_name>=<new_value> rather than with a list of Event objects.
+        """
+        if precedence < 0:
+            raise ValueError("User-defined watch callbacks must declare "
+                             "a positive precedence. Negative precedences "
+                             "are reserved for internal Watchers.")
+        assert what == 'value'
+        if isinstance(parameter_names, list):
+            parameter_names = tuple(parameter_names)
+        else:
+            parameter_names = (parameter_names,)
         watcher = Watcher(inst=self_.self, cls=self_.cls, fn=fn,
                           mode='kwargs', onlychanged=onlychanged,
-                          parameter_names=parameter_names, what='value',
-                          queued=queued)
-        self_._watch('append', watcher, what)
+                          parameter_names=parameter_names, what=what,
+                          queued=queued, precedence=precedence)
+        self_._register_watcher('append', watcher, what)
         return watcher
 
-
     # Instance methods
-
 
     def defaults(self_):
         """
@@ -2054,6 +2472,12 @@ class Parameters(object):
         self_.__db_print(DEBUG,msg,*args,**kw)
 
 
+    def pprint(self_, imports=None, prefix=" ", unknown_value='<?>',
+               qualify=False, separator=""):
+        """See Parameterized.pprint"""
+        self = self_.self
+        return self.pprint(imports, prefix, unknown_value, qualify, separator)
+
     # CEBALERT: I think I've noted elsewhere the fact that we
     # sometimes have a method on Parameter that requires passing the
     # owning Parameterized instance or class, and other times we have
@@ -2089,7 +2513,7 @@ class ParameterizedMetaclass(type):
     attribute __abstract set to True. The 'abstract' attribute can be
     used to find out if a class is abstract or not.
     """
-    def __init__(mcs,name,bases,dict_):
+    def __init__(mcs, name, bases, dict_):
         """
         Initialize the class object (not an instance of the class, but
         the class itself).
@@ -2098,7 +2522,7 @@ class ParameterizedMetaclass(type):
         default values (see __param_inheritance()) and setting
         attrib_names (see _set_names()).
         """
-        type.__init__(mcs,name,bases,dict_)
+        type.__init__(mcs, name, bases, dict_)
 
         # Give Parameterized classes a useful 'name' attribute.
         # (Could instead consider changing the instance Parameter
@@ -2115,26 +2539,39 @@ class ParameterizedMetaclass(type):
 
         # All objects (with their names) of type Parameter that are
         # defined in this class
-        parameters = [(n,o) for (n,o) in dict_.items()
+        parameters = [(n, o) for (n, o) in dict_.items()
                       if isinstance(o, Parameter)]
 
         mcs._param._parameters = dict(parameters)
 
         for param_name,param in parameters:
-            mcs._initialize_parameter(param_name,param)
+            mcs._initialize_parameter(param_name, param)
 
         # retrieve depends info from methods and store more conveniently
-        dependers = [(n,m._dinfo) for (n,m) in dict_.items()
-                     if hasattr(m,'_dinfo')]
+        dependers = [(n, m, m._dinfo) for (n, m) in dict_.items()
+                     if hasattr(m, '_dinfo')]
 
         _watch = []
-        # TODO: probably copy dependencies here too and have
-        # everything else access from here rather than from method
-        # object
-        for n,dinfo in dependers:
+        for name, method, dinfo in dependers:
             watch = dinfo.get('watch', False)
-            if watch:
-                _watch.append((n, watch == 'queued'))
+            on_init = dinfo.get('on_init', False)
+            if not watch:
+                continue
+            minfo = MInfo(cls=mcs, inst=None, name=name,
+                          method=method)
+            deps, dynamic_deps = _params_depended_on(minfo, dynamic=False)
+            _watch.append((name, watch == 'queued', on_init, deps, dynamic_deps))
+
+        # Resolve other dependencies in remainder of class hierarchy
+        for cls in classlist(mcs)[:-1][::-1]:
+            if not hasattr(cls, '_param'):
+                continue
+            for dep in cls.param._depends['watch']:
+                method = getattr(mcs, dep[0], None)
+                dinfo = getattr(method, '_dinfo', {'watch': False})
+                if (not any(dep[0] == w[0] for w in _watch)
+                    and dinfo.get('watch')):
+                    _watch.append(dep)
 
         mcs.param._depends = {'watch': _watch}
 
@@ -2203,7 +2640,7 @@ class ParameterizedMetaclass(type):
 
     param = property(_get_param)
 
-    def __setattr__(mcs,attribute_name,value):
+    def __setattr__(mcs, attribute_name, value):
         """
         Implements 'self.attribute_name=value' in a way that also supports Parameters.
 
@@ -2345,42 +2782,63 @@ class ParameterizedMetaclass(type):
 
 
 
-# JABALERT: Only partially achieved so far -- objects of the same
-# type and parameter values are treated as different, so anything
-# for which instantiate == True is reported as being non-default.
-
 # Whether script_repr should avoid reporting the values of parameters
 # that are just inheriting their values from the class defaults.
+# Because deepcopying creates a new object, cannot detect such
+# inheritance when instantiate = True, so such values will be printed
+# even if they are just being copied from the default.
 script_repr_suppress_defaults=True
 
 
-# CEBALERT: How about some defaults?
-# Also, do we need an option to return repr without path, if desired?
-# E.g. to get 'pre_plot_hooks()' instead of
-# 'topo.command.analysis.pre_plot_hooks()' in the gui?
-def script_repr(val,imports,prefix,settings):
+def script_repr(val, imports=None, prefix="\n    ", settings=[],
+        qualify=True, unknown_value=None, separator="\n",
+        show_imports=True):
     """
-    Variant of repr() designed for generating a runnable script.
+    Variant of pprint() designed for generating a (nearly) runnable script.
 
-    Instances of types that require special handling can use the
-    script_repr_reg dictionary. Using the type as a key, add a
-    function that returns a suitable representation of instances of
-    that type, and adds the required import statement.
+    The output of script_repr(parameterized_obj) is meant to be a
+    string suitable for running using `python file.py`. Not every
+    object is guaranteed to have a runnable script_repr
+    representation, but it is meant to be a good starting point for
+    generating a Python script that (after minor edits) can be
+    evaluated to get a newly initialized object similar to the one
+    provided.
 
-    The repr of a parameter can be suppressed by returning None from
-    the appropriate hook in script_repr_reg.
+    The new object will only have the same parameter state, not the
+    same internal (attribute) state; the script_repr captures only
+    the state of the Parameters of that object and not any other
+    attributes it may have.
+
+    If show_imports is True (default), includes import statements
+    for each of the modules required for the objects being
+    instantiated. This list may not be complete, as it typically
+    includes only the imports needed for the Parameterized object
+    itself, not for values that may have been supplied to Parameters.
+
+    Apart from show_imports, accepts the same arguments as pprint(),
+    so see pprint() for explanations of the arguments accepted. The
+    default values of each of these arguments differ from pprint() in
+    ways that are more suitable for saving as a separate script than
+    for e.g. pretty-printing at the Python prompt.
     """
-    return pprint(val,imports,prefix,settings,unknown_value=None,
-                  qualify=True,separator="\n")
+
+    if imports is None:
+        imports = []
+
+    rep = pprint(val, imports, prefix, settings, unknown_value,
+                 qualify, separator)
+
+    imports = list(set(imports))
+    imports_str = ("\n".join(imports) + "\n\n") if show_imports else ""
+
+    return imports_str + rep
 
 
-# CB: when removing script_repr, merge its docstring here and improve.
-# And the ALERT by script_repr about defaults can go.
-# CEBALERT: remove settings, add default argument for imports
-def pprint(val,imports, prefix="\n    ", settings=[],
+
+def pprint(val,imports=None, prefix="\n    ", settings=[],
            unknown_value='<?>', qualify=False, separator=''):
     """
-    (Experimental) Pretty printed representation of a parameterized
+    Pretty printed representation of a parameterized
     object that may be evaluated with eval.
 
     Similar to repr except introspection of the constructor (__init__)
@@ -2414,11 +2872,17 @@ def pprint(val,imports, prefix="\n    ", settings=[],
     (e.g. a newline could be supplied to have each Parameter appear on a
     separate line).
 
-    NOTE: pprint will replace script_repr in a future version of
-    param, but is not yet a complete replacement for script_repr.
+    Instances of types that require special handling can use the
+    script_repr_reg dictionary. Using the type as a key, add a
+    function that returns a suitable representation of instances of
+    that type, and adds the required import statement. The repr of a
+    parameter can be suppressed by returning None from the appropriate
+    hook in script_repr_reg.
     """
-    # CB: doc prefix & settings or realize they don't need to be
-    # passed around, etc.
+
+    if imports is None:
+        imports = []
+
     # JLS: The settings argument is not used anywhere. To be removed
     # in a separate PR.
     if isinstance(val,type):
@@ -2427,22 +2891,17 @@ def pprint(val,imports, prefix="\n    ", settings=[],
     elif type(val) in script_repr_reg:
         rep = script_repr_reg[type(val)](val,imports,prefix,settings)
 
-    # CEBALERT: remove with script_repr
-    elif hasattr(val,'script_repr'):
-        rep=val.script_repr(imports, prefix+"    ")
-
     elif hasattr(val,'pprint'):
         rep=val.pprint(imports=imports, prefix=prefix+"    ",
                        qualify=qualify, unknown_value=unknown_value,
                        separator=separator)
-
     else:
         rep=repr(val)
 
     return rep
 
 
-#: see script_repr()
+# Registry for special handling for certain types in script_repr and pprint
 script_repr_reg = {}
 
 
@@ -2479,7 +2938,6 @@ except ImportError:
     pass # Support added only if those libraries are available
 
 
-# why I have to type prefix and settings?
 def function_script_repr(fn,imports,prefix,settings):
     name = fn.__name__
     module = fn.__module__
@@ -2594,27 +3052,13 @@ class Parameterized(object):
         }
         self._instance__params = {}
         self._param_watchers = {}
+        self._dynamic_watchers = defaultdict(list)
 
         self.param._generate_name()
         self.param._setup_params(**params)
         object_count += 1
 
-        # add watched dependencies
-        for cls in classlist(self.__class__):
-            if not issubclass(cls, Parameterized):
-                continue
-            for n, queued in cls.param._depends['watch']:
-                # TODO: should improve this - will happen for every
-                # instantiation of Parameterized with watched deps. Will
-                # probably store expanded deps on class - see metaclass
-                # 'dependers'.
-                grouped = defaultdict(list)
-                for dep in self.param.params_depended_on(n):
-                    grouped[(id(dep.inst),id(dep.cls),dep.what)].append(dep)
-                for group in grouped.values():
-                    # TODO: can't remember why not just pass m (rather than _m_caller) here
-                    gdep = group[0] # Need to grab representative dep from this group
-                    (gdep.inst or gdep.cls).param.watch(_m_caller(self, n), [d.name for d in group], gdep.what, queued=queued)
+        self.param._update_deps(init=True)
 
         self.initialized = True
 
@@ -2702,15 +3146,15 @@ class Parameterized(object):
         return "<%s %s>" % (self.__class__.__name__,self.name)
 
 
+    # PARAM2_DEPRECATION: Remove this compatibility alias for param 2.0 and later; use self.pprint instead
     def script_repr(self,imports=[],prefix="    "):
         """
-        Variant of __repr__ designed for generating a runnable script.
+        Deprecated variant of __repr__ designed for generating a runnable script.
         """
         return self.pprint(imports,prefix, unknown_value=None, qualify=True,
                            separator="\n")
 
     @recursive_repr()
-    # CEBALERT: not yet properly documented
     def pprint(self, imports=None, prefix=" ", unknown_value='<?>',
                qualify=False, separator=""):
         """
@@ -2731,7 +3175,7 @@ class Parameterized(object):
 
         changed_params = dict(self.param.get_param_values(onlychanged=script_repr_suppress_defaults))
         values = dict(self.param.get_param_values())
-        spec = inspect.getargspec(self.__init__)
+        spec = getfullargspec(self.__init__)
         args = spec.args[1:] if spec.args[0] == 'self' else spec.args
 
         if spec.defaults is not None:
@@ -2775,7 +3219,9 @@ class Parameterized(object):
             if k in posargs:
                 # value will be unknown_value unless k is a parameter
                 arglist.append(value)
-            elif k in kwargs or (spec.keywords is not None):
+            elif (k in kwargs or
+                  (hasattr(spec, 'varkw') and (spec.varkw is not None)) or
+                  (hasattr(spec, 'keywords') and (spec.keywords is not None))):
                 # Explicit modified keywords or parameters in
                 # precendence order (if **kwargs present)
                 keywords.append('%s=%s' % (k, value))
@@ -2978,7 +3424,7 @@ class ParamOverrides(dict):
     def extra_keywords(self):
         """
         Return a dictionary containing items from the originally
-        supplied dict_ whose names are not parameters of the
+        supplied `dict_` whose names are not parameters of the
         overridden object.
         """
         return self._extra_keywords
@@ -2986,7 +3432,7 @@ class ParamOverrides(dict):
     def param_keywords(self):
         """
         Return a dictionary containing items from the originally
-        supplied dict_ whose names are parameters of the
+        supplied `dict_` whose names are parameters of the
         overridden object (i.e. not extra keywords/parameters).
         """
         return dict((key, self[key]) for key in self if key not in self.extra_keywords())

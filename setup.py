@@ -19,7 +19,8 @@ extras_require = {
     # pip doesn't support tests_require
     # (https://github.com/pypa/pip/issues/1197)
     'tests': [
-        'nose',
+        'pytest',
+        'pytest-cov',
         'flake8',
     ],
     'doc': [
@@ -29,7 +30,11 @@ extras_require = {
         'myst-parser',
         'nbconvert <6.0',
         'graphviz',
-        'myst_nb ==0.12.2'
+        'myst_nb ==0.12.2',
+        'sphinx-copybutton',
+        'aiohttp',
+        'panel',
+        'pandas',
     ]
 }
 
@@ -71,11 +76,11 @@ setup_args = dict(
         "Programming Language :: Python :: 2",
         "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.4",
-        "Programming Language :: Python :: 3.5",
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Operating System :: OS Independent",
         "Intended Audience :: Science/Research",
         "Intended Audience :: Developers",

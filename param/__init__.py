@@ -29,7 +29,7 @@ from .parameterized import (
     Parameterized, Parameter, String, ParameterizedFunction, ParamOverrides,
     descendents, get_logger, instance_descriptor, basestring)
 
-from .parameterized import (batch_watch, depends, output, # noqa: api import
+from .parameterized import (batch_watch, depends, output, script_repr, # noqa: api import
                             discard_events, edit_constant, instance_descriptor)
 from .parameterized import logging_level     # noqa: api import
 from .parameterized import shared_parameters # noqa: api import
@@ -1349,8 +1349,8 @@ class ClassSelector(SelectorBase):
         """
         Return the possible types for this parameter's value.
 
-        (I.e. return {name: <class>} for all classes that are
-        concrete_descendents() of self.class_.)
+        (I.e. return `{name: <class>}` for all classes that are
+        concrete_descendents() of `self.class_`.)
 
         Only classes from modules that have been imported are added
         (see concrete_descendents()).
@@ -1709,7 +1709,7 @@ class Path(Parameter):
     The specified path can be absolute, or relative to either:
 
     * any of the paths specified in the search_paths attribute (if
-      search_paths is not None);
+       search_paths is not None);
 
     or
 
@@ -1768,6 +1768,7 @@ class Filename(Path):
 
     * any of the paths specified in the search_paths attribute (if
       search_paths is not None);
+
     or
 
     * any of the paths searched by resolve_path() (if search_paths
@@ -1789,6 +1790,7 @@ class Foldername(Path):
 
     * any of the paths specified in the search_paths attribute (if
       search_paths is not None);
+
     or
 
     * any of the paths searched by resolve_dir_path() (if search_paths
@@ -1942,8 +1944,8 @@ class CalendarDate(Number):
         if self.allow_None and val is None:
             return
 
-        if not isinstance(val, dt.date) and not (allow_None and val is None):
-            raise ValueError("CalendarDate parameter %r only takes datetime types." % self.name)
+        if (not isinstance(val, dt.date) or isinstance(val, dt.datetime)) and not (allow_None and val is None):
+            raise ValueError("CalendarDate parameter %r only takes date types." % self.name)
 
     def _validate_step(self, val, step):
         if step is not None and not isinstance(step, dt.date):
@@ -2033,7 +2035,9 @@ class Color(Parameter):
 
 
 class Range(NumericTuple):
-    "A numeric range with optional bounds and softbounds"
+    """
+    A numeric range with optional bounds and softbounds.
+    """
 
     __slots__ = ['bounds', 'inclusive_bounds', 'softbounds', 'step']
 
