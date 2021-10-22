@@ -6,6 +6,12 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+a[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+b[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+rc[0-9]+'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'dev or main'     
+        required: true
+        default: 'dev'
 
 jobs:
   build_docs:
@@ -37,17 +43,17 @@ jobs:
       - name: build docs
         run: |
           cp examples/user_guide/*.ipynb doc/user_guide/
-          python -m nbsite build --examples-assets='' --org holoviz --project-name param
+          python -m nbsite build --org holoviz --project-name param
       - name: Deploy dev
         uses: peaceiris/actions-gh-pages@v3
-        if: (contains(steps.vars.outputs.tag, 'a') || contains(steps.vars.outputs.tag, 'b') || contains(steps.vars.outputs.tag, 'rc'))
+        if: (github.event.inputs.target == 'dev' || contains(steps.vars.outputs.tag, 'a') || contains(steps.vars.outputs.tag, 'b') || contains(steps.vars.outputs.tag, 'rc'))
         with:
           personal_token: ${{ secrets.ACCESS_TOKEN }}
           external_repository: pyviz-dev/param
           publish_dir: ./builtdocs
           force_orphan: true
       - name: Deploy main
-        if: (!(contains(steps.vars.outputs.tag, 'a') || contains(steps.vars.outputs.tag, 'b') || contains(steps.vars.outputs.tag, 'rc')))
+        if: (github.event.inputs.target == 'main' || !(contains(steps.vars.outputs.tag, 'a') || contains(steps.vars.outputs.tag, 'b') || contains(steps.vars.outputs.tag, 'rc')))
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

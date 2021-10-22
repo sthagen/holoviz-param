@@ -232,7 +232,7 @@ class Hash(object):
         elif hasattr(val, 'numer'):
             (numer, denom) = (int(val.numer()), int(val.denom()))
         else:
-            param.main.param.warning("Casting type '%s' to Fraction.fraction"
+            param.main.param.log(param.WARNING, "Casting type '%s' to Fraction.fraction"
                                % type(val).__name__)
             frac = fractions.Fraction(str(val))
             numer, denom = frac.numerator, frac.denominator
@@ -366,10 +366,10 @@ class TimeAwareRandomState(TimeAware):
         """
         Warn if the object name is not explicitly set.
         """
-        changed_params = dict(self.param.get_param_values(onlychanged=True))
+        changed_params = self.param.values(onlychanged=True)
         if self.time_dependent and ('name' not in changed_params):
-            self.param.warning("Default object name used to set the seed: "
-                               "random values conditional on object instantiation order.")
+            self.param.log(param.WARNING, "Default object name used to set the seed: "
+                           "random values conditional on object instantiation order.")
 
     def _hash_and_seed(self):
         """

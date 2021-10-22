@@ -278,24 +278,24 @@ class TestParameterized(API1TestCase):
             assert obj is TestPO.param[p]
 
 
-    def test_set_param_instance_params(self):
-        # Ensure set_param does not make instance parameter copies
+    def test_update_instance_params(self):
+        # Ensure update does not make instance parameter copies
         test = TestPO()
-        test.param.set_param(inst=3)
+        test.param.update(inst=3)
         for p, obj in TestPO.param.objects('current').items():
             assert obj is TestPO.param[p]
 
 
-    def test_get_param_values_instance_params(self):
-        # Ensure get_param_values does not make instance parameter copies
+    def test_values_instance_params(self):
+        # Ensure values does not make instance parameter copies
         test = TestPO()
-        test.param.get_param_values()
+        test.param.values()
         for p, obj in TestPO.param.objects('current').items():
             assert obj is TestPO.param[p]
 
 
     def test_defaults_instance_params(self):
-        # Ensure get_param_values does not make instance parameter copies
+        # Ensure defaults does not make instance parameter copies
         test = TestPO()
         test.param.defaults()
         for p, obj in TestPO.param.objects('current').items():
