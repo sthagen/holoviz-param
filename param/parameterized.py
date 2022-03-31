@@ -340,7 +340,14 @@ def iscoroutinefunction(function):
     """
     if not hasattr(inspect, 'iscoroutinefunction'):
         return False
-    return inspect.isasyncgenfunction(function) or inspect.iscoroutinefunction(function)
+    import asyncio
+    try:
+        return (
+            inspect.isasyncgenfunction(function) or
+            asyncio.iscoroutinefunction(function)
+        )
+    except AttributeError:
+        return False
 
 
 def instance_descriptor(f):
@@ -382,9 +389,15 @@ def depends(func, *dependencies, **kw):
     watch = kw.pop("watch", False)
     on_init = kw.pop("on_init", False)
 
-    @wraps(func)
-    def _depends(*args, **kw):
-        return func(*args, **kw)
+    if iscoroutinefunction(func):
+        import asyncio
+        @asyncio.coroutine
+        def _depends(*args, **kw):
+            yield from func(*args, **kw)
+    else:
+        @wraps(func)
+        def _depends(*args, **kw):
+            return func(*args, **kw)
 
     deps = list(dependencies)+list(kw.values())
     string_specs = False
@@ -416,10 +429,18 @@ def depends(func, *dependencies, **kw):
                              'parameters by name.')
 
     if not string_specs and watch: # string_specs case handled elsewhere (later), in Parameterized.__init__
-        def cb(*events):
-            args = (getattr(dep.owner, dep.name) for dep in dependencies)
-            dep_kwargs = {n: getattr(dep.owner, dep.name) for n, dep in kw.items()}
-            return func(*args, **dep_kwargs)
+        if iscoroutinefunction(func):
+            import asyncio
+            @asyncio.coroutine
+            def cb(*events):
+                args = (getattr(dep.owner, dep.name) for dep in dependencies)
+                dep_kwargs = {n: getattr(dep.owner, dep.name) for n, dep in kw.items()}
+                yield from func(*args, **dep_kwargs)
+        else:
+            def cb(*events):
+                args = (getattr(dep.owner, dep.name) for dep in dependencies)
+                dep_kwargs = {n: getattr(dep.owner, dep.name) for n, dep in kw.items()}
+                return func(*args, **dep_kwargs)
 
         grouped = defaultdict(list)
         for dep in deps:
@@ -641,7 +662,7 @@ def _m_caller(self, method_name, what='value', changed=None, callback=None):
         def caller(*events):
             if callback: callback(*events)
             if not _skip_event(*events, what=what, changed=changed):
-                yield function()
+                yield from function()
     else:
         def caller(*events):
             if callback: callback(*events)
@@ -2010,7 +2031,7 @@ class Parameters(object):
 
         if self_.self_or_cls.param._BATCH_WATCH:
             self_._events.append(event)
-            if watcher not in self_._watchers:
+            if not any(watcher is w for w in self_._watchers):
                 self_._watchers.append(watcher)
         else:
             event = self_._update_event_type(watcher, event, self_.self_or_cls.param._TRIGGER)
@@ -2351,7 +2372,7 @@ class Parameters(object):
         elif hasattr(src, attr):
             info = MInfo(inst=inst, cls=cls, name=attr,
                          method=getattr(src, attr))
-        elif src.abstract:
+        elif getattr(src, "abstract", None):
             return [], [] if intermediate == 'only' else [DInfo(spec=spec)]
         else:
             raise AttributeError("Attribute %r could not be resolved on %s."

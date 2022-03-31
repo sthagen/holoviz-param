@@ -894,7 +894,7 @@ class Number(Dynamic):
 
     def _validate_step(self, val, step):
         if step is not None and not _is_number(step):
-            raise ValueError("Step parameter can only be None or a "
+            raise ValueError("Step can only be None or a "
                              "numeric value, not type %r." % type(step))
 
     def _validate(self, val):
@@ -936,7 +936,7 @@ class Integer(Number):
 
     def _validate_step(self, val, step):
         if step is not None and not isinstance(step, int):
-            raise ValueError("Step parameter can only be None or an "
+            raise ValueError("Step can only be None or an "
                              "integer value, not type %r" % type(step))
 
 
@@ -1017,10 +1017,14 @@ class Tuple(Parameter):
 
     @classmethod
     def serialize(cls, value):
+        if value is None:
+            return 'null'
         return list(value) # As JSON has no tuple representation
 
     @classmethod
     def deserialize(cls, value):
+        if value == 'null':
+            return None
         return tuple(value) # As JSON has no tuple representation
 
 
@@ -1474,10 +1478,14 @@ class Array(ClassSelector):
 
     @classmethod
     def serialize(cls, value):
+        if value is None:
+            return 'null'
         return value.tolist()
 
     @classmethod
     def deserialize(cls, value):
+        if value == 'null':
+            return None
         from numpy import asarray
         return asarray(value)
 
@@ -1557,10 +1565,14 @@ class DataFrame(ClassSelector):
 
     @classmethod
     def serialize(cls, value):
+        if value is None:
+            return 'null'
         return value.to_dict('records')
 
     @classmethod
     def deserialize(cls, value):
+        if value == 'null':
+            return None
         from pandas import DataFrame as pdDFrame
         return pdDFrame(value)
 
@@ -1911,26 +1923,36 @@ class Date(Number):
             return
 
         if not isinstance(val, dt_types) and not (allow_None and val is None):
-            raise ValueError("Date parameter %r only takes datetime and date types." % self.name)
+            raise ValueError(
+                "Date parameter %r only takes datetime and date types, "
+                "not type %r." % (self.name, type(val))
+            )
 
     def _validate_step(self, val, step):
         if step is not None and not isinstance(step, dt_types):
-            raise ValueError("Step parameter can only be None, a datetime or datetime type")
+            raise ValueError(
+                "Step can only be None, a datetime "
+                "or datetime type, not type %r." % type(val)
+            )
 
     @classmethod
     def serialize(cls, value):
+        if value is None:
+            return 'null'
         if not isinstance(value, (dt.datetime, dt.date)): # i.e np.datetime64
             value = value.astype(dt.datetime)
         return value.strftime("%Y-%m-%dT%H:%M:%S.%f")
 
     @classmethod
     def deserialize(cls, value):
+        if value == 'null':
+            return None
         return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%S.%f")
 
 
 class CalendarDate(Number):
     """
-    CalendarDate parameter of date type.
+    Parameter specifically allowing dates (not datetimes).
     """
 
     def __init__(self, default=None, **kwargs):
@@ -1949,14 +1971,18 @@ class CalendarDate(Number):
 
     def _validate_step(self, val, step):
         if step is not None and not isinstance(step, dt.date):
-            raise ValueError("Step parameter can only be None or a date type.")
+            raise ValueError("Step can only be None or a date type.")
 
     @classmethod
     def serialize(cls, value):
+        if value is None:
+            return 'null'
         return value.strftime("%Y-%m-%d")
 
     @classmethod
     def deserialize(cls, value):
+        if value == 'null':
+            return None
         return dt.datetime.strptime(value, "%Y-%m-%d").date()
 
 
@@ -2093,13 +2119,13 @@ class DateRange(Range):
             if isinstance(n, dt_types):
                 continue
             raise ValueError("DateRange parameter %r only takes datetime "
-                             "types, not %s." % (self.name, val))
+                             "types, not %r." % (self.name, type(val)))
 
         start, end = val
         if not end >= start:
             raise ValueError("DateRange parameter %r's end datetime %s "
                              "is before start datetime %s." %
-                             (self.name,val[1],val[0]))
+                             (self.name, val[1], val[0]))
 
 
 
