@@ -390,10 +390,8 @@ def depends(func, *dependencies, **kw):
     on_init = kw.pop("on_init", False)
 
     if iscoroutinefunction(func):
-        import asyncio
-        @asyncio.coroutine
-        def _depends(*args, **kw):
-            yield from func(*args, **kw)
+        from ._async import generate_depends
+        _depends = generate_depends(func)
     else:
         @wraps(func)
         def _depends(*args, **kw):
@@ -430,12 +428,8 @@ def depends(func, *dependencies, **kw):
 
     if not string_specs and watch: # string_specs case handled elsewhere (later), in Parameterized.__init__
         if iscoroutinefunction(func):
-            import asyncio
-            @asyncio.coroutine
-            def cb(*events):
-                args = (getattr(dep.owner, dep.name) for dep in dependencies)
-                dep_kwargs = {n: getattr(dep.owner, dep.name) for n, dep in kw.items()}
-                yield from func(*args, **dep_kwargs)
+            from ._async import generate_callback
+            cb = generate_callback(func, dependencies, kw)
         else:
             def cb(*events):
                 args = (getattr(dep.owner, dep.name) for dep in dependencies)
@@ -657,12 +651,8 @@ def _m_caller(self, method_name, what='value', changed=None, callback=None):
     """
     function = getattr(self, method_name)
     if iscoroutinefunction(function):
-        import asyncio
-        @asyncio.coroutine
-        def caller(*events):
-            if callback: callback(*events)
-            if not _skip_event(*events, what=what, changed=changed):
-                yield from function()
+        from ._async import generate_caller
+        caller = generate_caller(function, what=what, changed=changed, callback=callback, skip_event=_skip_event)
     else:
         def caller(*events):
             if callback: callback(*events)
@@ -2661,6 +2651,7 @@ class ParameterizedMetaclass(type):
         dependers = [(n, m, m._dinfo) for (n, m) in dict_.items()
                      if hasattr(m, '_dinfo')]
 
+        # Resolve dependencies of current class
         _watch = []
         for name, method, dinfo in dependers:
             watch = dinfo.get('watch', False)
@@ -2672,18 +2663,19 @@ class ParameterizedMetaclass(type):
             deps, dynamic_deps = _params_depended_on(minfo, dynamic=False)
             _watch.append((name, watch == 'queued', on_init, deps, dynamic_deps))
 
-        # Resolve other dependencies in remainder of class hierarchy
+        # Resolve dependencies in class hierarchy
+        _inherited = []
         for cls in classlist(mcs)[:-1][::-1]:
             if not hasattr(cls, '_param'):
                 continue
             for dep in cls.param._depends['watch']:
                 method = getattr(mcs, dep[0], None)
                 dinfo = getattr(method, '_dinfo', {'watch': False})
-                if (not any(dep[0] == w[0] for w in _watch)
+                if (not any(dep[0] == w[0] for w in _watch+_inherited)
                     and dinfo.get('watch')):
-                    _watch.append(dep)
+                    _inherited.append(dep)
 
-        mcs.param._depends = {'watch': _watch}
+        mcs.param._depends = {'watch': _inherited+_watch}
 
         if docstring_signature:
             mcs.__class_docstring_signature()

@@ -2112,14 +2112,20 @@ class DateRange(Range):
     """
 
     def _validate_value(self, val, allow_None):
+        # Cannot use super()._validate_value as DateRange inherits from
+        # NumericTuple which check that the tuple values are numbers and
+        # datetime objects aren't numbers.
         if allow_None and val is None:
             return
 
+        if not isinstance(val, tuple):
+            raise ValueError("DateRange parameter %r only takes a tuple value, "
+                             "not %s." % (self.name, type(val).__name__))
         for n in val:
             if isinstance(n, dt_types):
                 continue
-            raise ValueError("DateRange parameter %r only takes datetime "
-                             "types, not %r." % (self.name, type(val)))
+            raise ValueError("DateRange parameter %r only takes date/datetime "
+                             "values, not type %s." % (self.name, type(n).__name__))
 
         start, end = val
         if not end >= start:
@@ -2127,7 +2133,37 @@ class DateRange(Range):
                              "is before start datetime %s." %
                              (self.name, val[1], val[0]))
 
+    @classmethod
+    def serialize(cls, value):
+        if value is None:
+            return 'null'
+        # List as JSON has no tuple representation
+        serialized = []
+        for v in value:
+            if not isinstance(v, (dt.datetime, dt.date)): # i.e np.datetime64
+                v = v.astype(dt.datetime)
+            # Separate date and datetime to deserialize to the right type.
+            if type(v) == dt.date:
+                v = v.strftime("%Y-%m-%d")
+            else:
+                v = v.strftime("%Y-%m-%dT%H:%M:%S.%f")
+            serialized.append(v)
+        return serialized
 
+    def deserialize(cls, value):
+        if value == 'null':
+            return None
+        deserialized = []
+        for v in value:
+            # Date
+            if len(v) == 10:
+                v = dt.datetime.strptime(v, "%Y-%m-%d").date()
+            # Datetime
+            else:
+                v = dt.datetime.strptime(v, "%Y-%m-%dT%H:%M:%S.%f")
+            deserialized.append(v)
+        # As JSON has no tuple representation
+        return tuple(deserialized)
 
 class CalendarDateRange(Range):
     """
@@ -2147,6 +2183,20 @@ class CalendarDateRange(Range):
             raise ValueError("CalendarDateRange parameter %r's end date "
                              "%s is before start date %s." %
                              (self.name, val[1], val[0]))
+
+    @classmethod
+    def serialize(cls, value):
+        if value is None:
+            return 'null'
+        # As JSON has no tuple representation
+        return [v.strftime("%Y-%m-%d") for v in value]
+
+    @classmethod
+    def deserialize(cls, value):
+        if value == 'null':
+            return None
+        # As JSON has no tuple representation
+        return tuple([dt.datetime.strptime(v, "%Y-%m-%d").date() for v in value])
 
 
 class Event(Boolean):
