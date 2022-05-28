@@ -27,7 +27,7 @@ import collections
 
 from .parameterized import (
     Parameterized, Parameter, String, ParameterizedFunction, ParamOverrides,
-    descendents, get_logger, instance_descriptor, basestring)
+    descendents, get_logger, instance_descriptor, basestring, dt_types)
 
 from .parameterized import (batch_watch, depends, output, script_repr, # noqa: api import
                             discard_events, edit_constant, instance_descriptor)
@@ -46,16 +46,6 @@ try:
     __version__ = str(Version(fpath=__file__, archive_commit="$Format:%h$", reponame="param"))
 except:
     __version__ = "0.0.0+unknown"
-
-
-dt_types = (dt.datetime, dt.date)
-
-try:
-    import numpy as np
-    dt_types = dt_types + (np.datetime64,)
-except:
-    pass
-
 
 try:
     import collections.abc as collections_abc
@@ -123,6 +113,7 @@ def hashable(x):
     else:
         return x
 
+
 def named_objs(objlist, namesdict=None):
     """
     Given a list of objects, returns a dictionary mapping from
@@ -132,12 +123,20 @@ def named_objs(objlist, namesdict=None):
     """
     objs = OrderedDict()
 
+    objtoname = {}
+    unhashables = []
     if namesdict is not None:
-        objtoname = {hashable(v): k for k, v in namesdict.items()}
+        for k, v in namesdict.items():
+            try:
+                objtoname[hashable(v)] = k
+            except TypeError:
+                unhashables.append((k, v))
 
     for obj in objlist:
-        if namesdict is not None and hashable(obj) in objtoname:
+        if objtoname and hashable(obj) in objtoname:
             k = objtoname[hashable(obj)]
+        elif any(obj is v for (_, v) in unhashables):
+            k = [k for (k, v) in unhashables if v is obj][0]
         elif hasattr(obj, "name"):
             k = obj.name
         elif hasattr(obj, '__name__'):
@@ -195,24 +194,29 @@ def guess_param_types(**kwargs):
         elif isinstance(v, tuple):
             if all(_is_number(el) for el in v):
                 params[k] = NumericTuple(**kws)
-            elif all(isinstance(el. dt_types) for el in v) and len(v)==2:
+            elif all(isinstance(el, dt_types) for el in v) and len(v)==2:
                 params[k] = DateRange(**kws)
             else:
                 params[k] = Tuple(**kws)
         elif isinstance(v, list):
             params[k] = List(**kws)
-        elif isinstance(v, np.ndarray):
-            params[k] = Array(**kws)
         else:
-            from pandas import DataFrame as pdDFrame
-            from pandas import Series as pdSeries
-
-            if isinstance(v, pdDFrame):
-                params[k] = DataFrame(**kws)
-            elif isinstance(v, pdSeries):
-                params[k] = Series(**kws)
-            else:
-                params[k] = Parameter(**kws)
+            if 'numpy' in sys.modules:
+                from numpy import ndarray
+                if isinstance(v, ndarray):
+                    params[k] = Array(**kws)
+                    continue
+            if 'pandas' in sys.modules:
+                from pandas import (
+                    DataFrame as pdDFrame, Series as pdSeries
+                )
+                if isinstance(v, pdDFrame):
+                    params[k] = DataFrame(**kws)
+                    continue
+                elif isinstance(v, pdSeries):
+                    params[k] = Series(**kws)
+                    continue
+            params[k] = Parameter(**kws)
 
     return params
 
