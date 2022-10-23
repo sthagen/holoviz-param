@@ -25,10 +25,10 @@ jobs:
       CHANS: "-c pyviz"
       CONDA_UPLOAD_TOKEN: ${{ secrets.CONDA_UPLOAD_TOKEN }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Fetch unshallow
         run: git fetch --prune --tags --unshallow -f
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.7"
       - uses: conda-incubator/setup-miniconda@v2
@@ -36,7 +36,7 @@ jobs:
           miniconda-version: "latest"
       - name: Set output
         id: vars
-        run: echo ::set-output name=tag::${GITHUB_REF#refs/*/}
+        run: echo "tag=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
       - name: conda setup
         run: |
           eval "$(conda shell.bash hook)"
@@ -66,10 +66,10 @@ jobs:
     env:
       TOX_ENV: "py3.7"
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Fetch unshallow
         run: git fetch --prune --tags --unshallow -f
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.7"
       - name: env setup
