@@ -97,6 +97,19 @@ class _Undefined:
     simple None values.
     """
 
+    def __bool__(self):
+        # Haven't defined whether Undefined is falsy or truthy,
+        # so to avoid subtle bugs raise an error when it
+        # is used in a comparison without `is`.
+        raise RuntimeError('Use `is` to compare Undefined')
+
+    def __repr__(self):
+        return '<Undefined>'
+
+
+Undefined = _Undefined()
+
+
 @contextmanager
 def logging_level(level):
     """
@@ -642,11 +655,11 @@ def _skip_event(*events, **kwargs):
     for e in events:
         for p in changed:
             if what == 'value':
-                old = _Undefined if e.old is None else _getattrr(e.old, p, None)
-                new = _Undefined if e.new is None else _getattrr(e.new, p, None)
+                old = Undefined if e.old is None else _getattrr(e.old, p, None)
+                new = Undefined if e.new is None else _getattrr(e.new, p, None)
             else:
-                old = _Undefined if e.old is None else _getattrr(e.old.param[p], what, None)
-                new = _Undefined if e.new is None else _getattrr(e.new.param[p], what, None)
+                old = Undefined if e.old is None else _getattrr(e.old.param[p], what, None)
+                new = Undefined if e.new is None else _getattrr(e.new.param[p], what, None)
             if not Comparator.is_equal(old, new):
                 return False
     return True
@@ -669,6 +682,15 @@ def _m_caller(self, method_name, what='value', changed=None, callback=None):
                 return function()
     caller._watcher_name = method_name
     return caller
+
+
+def _dict_update(dictionary, **kwargs):
+    """
+    Small utility to update a copy of a dict with the provided keyword args.
+    """
+    d = dictionary.copy()
+    d.update(kwargs)
+    return d
 
 
 def _add_doc(obj, docstring):
@@ -832,7 +854,6 @@ class ParameterMetaclass(type):
             return type.__getattribute__(mcs,name)
 
 
-
 @add_metaclass(ParameterMetaclass)
 class Parameter(object):
     """
@@ -980,10 +1001,17 @@ class Parameter(object):
 
     _serializers = {'json': serializer.JSONSerialization}
 
-    def __init__(self,default=None, doc=None, label=None, precedence=None,  # pylint: disable-msg=R0913
-                 instantiate=False, constant=False, readonly=False,
-                 pickle_default_value=True, allow_None=False,
-                 per_instance=True):
+    _slot_defaults = dict(
+        default=None, precedence=None, doc=None, _label=None, instantiate=False,
+        constant=False, readonly=False, pickle_default_value=True, allow_None=False,
+        per_instance=True
+    )
+
+    def __init__(self, default=Undefined, doc=Undefined, # pylint: disable-msg=R0913
+                 label=Undefined, precedence=Undefined,
+                 instantiate=Undefined, constant=Undefined, readonly=Undefined,
+                 pickle_default_value=Undefined, allow_None=Undefined,
+                 per_instance=Undefined):
 
         """Initialize a new Parameter object and store the supplied attributes:
 
@@ -1061,13 +1089,13 @@ class Parameter(object):
         self.precedence = precedence
         self.default = default
         self.doc = doc
-        self.constant = constant or readonly # readonly => constant
+        self.constant = constant is True or readonly is True # readonly => constant
         self.readonly = readonly
         self._label = label
         self._internal_name = None
         self._set_instantiate(instantiate)
         self.pickle_default_value = pickle_default_value
-        self.allow_None = (default is None or allow_None)
+        self._set_allow_None(allow_None)
         self.watchers = {}
         self.per_instance = per_instance
 
@@ -1101,6 +1129,18 @@ class Parameter(object):
     def label(self, val):
         self._label = val
 
+    def _set_allow_None(self, allow_None):
+        # allow_None is set following these rules (last takes precedence):
+        # 1. to False by default
+        # 2. to the value provided in the constructor, if any
+        # 3. to True if default is None
+        if self.default is None:
+            self.allow_None = True
+        elif allow_None is not Undefined:
+            self.allow_None = allow_None
+        else:
+            self.allow_None = self._slot_defaults['allow_None']
+
     def _set_instantiate(self,instantiate):
         """Constant parameters must be instantiated."""
         # instantiate doesn't actually matter for read-only
@@ -1108,8 +1148,11 @@ class Parameter(object):
         # having this code avoids needless instantiation.
         if self.readonly:
             self.instantiate = False
-        else:
+        elif instantiate is not Undefined:
             self.instantiate = instantiate or self.constant # pylint: disable-msg=W0201
+        else:
+            # Default value
+            self.instantiate = self._slot_defaults['instantiate']
 
     def __setattr__(self, attribute, value):
         if attribute == 'name' and getattr(self, 'name', None) and value != self.name:
@@ -1134,13 +1177,35 @@ class Parameter(object):
 
         if old is NotImplemented:
             return
+        self._trigger_event(attribute, old, value)
 
+    def _trigger_event(self, attribute, old, new):
         event = Event(what=attribute, name=self.name, obj=None, cls=self.owner,
-                      old=old, new=value, type=None)
+                      old=old, new=new, type=None)
         for watcher in self.watchers[attribute]:
             self.owner.param._call_watcher(watcher, event)
         if not self.owner.param._BATCH_WATCH:
             self.owner.param._batch_call_watchers()
+
+    def __getattribute__(self, key):
+        """
+        Allow slot values to be Undefined in an "unbound" parameter, i.e. one
+        that is not (yet) owned by a Parameterized object, in which case their
+        value will be retrieved from the _slot_defaults dictionary.
+        """
+        v = object.__getattribute__(self, key)
+        # Safely checks for name (avoiding recursion) to decide if this object is unbound
+        if v is Undefined and key != "name" and getattr(self, "name", None) is None:
+            try:
+                v = self._slot_defaults[key]
+            except KeyError as e:
+                raise KeyError(
+                    f'Slot {key!r} on unbound parameter {self.__class__.__name__!r} '
+                    'has no default value defined in `_slot_defaults`'
+                ) from e
+            if callable(v):
+                v = v(self)
+        return v
 
     def _on_set(self, attribute, old, value):
         """
@@ -1325,11 +1390,12 @@ class String(Parameter):
 
     __slots__ = ['regex']
 
-    def __init__(self, default="", regex=None, allow_None=False, **kwargs):
-        super(String, self).__init__(default=default, allow_None=allow_None, **kwargs)
+    _slot_defaults = _dict_update(Parameter._slot_defaults, default="", regex=None)
+
+    def __init__(self, default=Undefined, regex=Undefined, **kwargs):
+        super(String, self).__init__(default=default, **kwargs)
         self.regex = regex
-        self.allow_None = (default is None or allow_None)
-        self._validate(default)
+        self._validate(self.default)
 
     def _validate_regex(self, val, regex):
         if (val is None and self.allow_None):
@@ -1458,9 +1524,6 @@ class Parameters(object):
     and at the instance level. Can contain state specific to either the
     class or the instance as necessary.
     """
-
-    _disable_stubs = False # Flag used to disable stubs in the API1 tests
-                          # None for no action, True to raise and False to warn.
 
     def __init__(self_, cls, self=None):
         """
@@ -1640,28 +1703,6 @@ class Parameters(object):
             # i.e. if not desc it's setting an attribute in __dict__, not a Parameter
             setattr(self, name, val)
 
-    # PARAM2_DEPRECATION: Backwards compatibilitity for param<1.12
-    @classmethod
-    def deprecate(cls, fn):
-        """
-        Decorator to issue warnings for API moving onto the param
-        namespace and to add a docstring directing people to the
-        appropriate method.
-        """
-        def inner(*args, **kwargs):
-            if cls._disable_stubs:
-                raise AssertionError('Stubs supporting old API disabled')
-            elif cls._disable_stubs is None:
-                pass
-            elif cls._disable_stubs is False:
-                get_logger(name=args[0].__class__.__name__).log(
-                    WARNING, 'Use method %r via param namespace ' % fn.__name__)
-            return fn(*args, **kwargs)
-
-        inner.__doc__= "Inspect .param.%s method for the full docstring"  % fn.__name__
-        return inner
-
-
     @classmethod
     def _changed(cls, event):
         """
@@ -1669,7 +1710,6 @@ class Parameters(object):
         changed such that old != new.
         """
         return not Comparator.is_equal(event.old, event.new)
-
 
     def _instantiate_param(self_, param_obj, dict_=None, key=None):
         # deepcopy param_obj.default into self.__dict__ (or dict_ if supplied)
@@ -2818,9 +2858,9 @@ class ParameterizedMetaclass(type):
         given in the object's class, or in its superclasses.  For
         Parameters owned by Parameterized classes, we have implemented
         an additional level of default lookup, should this ordinary
-        lookup return only None.
+        lookup return only `Undefined`.
 
-        In such a case, i.e. when no non-None value was found for a
+        In such a case, i.e. when no non-`Undefined` value was found for a
         Parameter by the usual inheritance mechanisms, we explicitly
         look for Parameters with the same name in superclasses of this
         Parameterized class, and use the first such value that we
@@ -2861,14 +2901,15 @@ class ParameterizedMetaclass(type):
                 param.instantiate=True
         del slots['instantiate']
 
-
+        supers = classlist(mcs)[::-1]
+        callables = {}
         for slot in slots.keys():
-            superclasses = iter(classlist(mcs)[::-1])
+            superclasses = iter(supers)
 
             # Search up the hierarchy until param.slot (which has to
-            # be obtained using getattr(param,slot)) is not None, or
+            # be obtained using getattr(param,slot)) is not Undefined, or
             # we run out of classes to search.
-            while getattr(param,slot) is None:
+            while getattr(param,slot) is Undefined:
                 try:
                     param_super_class = next(superclasses)
                 except StopIteration:
@@ -2879,8 +2920,25 @@ class ParameterizedMetaclass(type):
                     # (slot might not be there because could be a more
                     # general type of Parameter)
                     new_value = getattr(new_param,slot)
-                    setattr(param,slot,new_value)
+                    if new_value is not Undefined:
+                        setattr(param, slot, new_value)
+            if getattr(param, slot) is Undefined:
+                try:
+                    default_val = param._slot_defaults[slot]
+                except KeyError as e:
+                    raise KeyError(
+                        f'Slot {slot!r} of parameter {param_name!r} has no '
+                        'default value defined in `_slot_defaults`'
+                    ) from e
+                if callable(default_val):
+                    callables[slot] = default_val
+                else:
+                    setattr(param, slot, default_val)
 
+        # Once all the static slots have been filled in, fill in the dynamic ones
+        # (which are only allowed to use static values or results are undefined)
+        for slot, fn in callables.items():
+            setattr(param, slot, fn(param))
 
     def get_param_descriptor(mcs,param_name):
         """
@@ -3394,91 +3452,6 @@ class Parameterized(object):
                 g._Dynamic_time = g._saved_Dynamic_time.pop()
             elif hasattr(g,'state_pop') and isinstance(g,Parameterized):
                 g.state_pop()
-
-
-    # API to be accessed via param namespace
-
-    @classmethod
-    @Parameters.deprecate
-    def _add_parameter(cls, param_name,param_obj):
-        return cls.param._add_parameter(param_name,param_obj)
-
-    @bothmethod
-    @Parameters.deprecate
-    def params(cls,parameter_name=None):
-        return cls.param.params(parameter_name=parameter_name)
-
-    @classmethod
-    @Parameters.deprecate
-    def set_default(cls,param_name,value):
-        return cls.param.set_default(param_name,value)
-
-    @classmethod
-    @Parameters.deprecate
-    def print_param_defaults(cls):
-        return cls.param.print_param_defaults()
-
-    @bothmethod
-    @Parameters.deprecate
-    def set_param(self_or_cls,*args,**kwargs):
-        return self_or_cls.param.set_param(*args,**kwargs)
-
-    @bothmethod
-    @Parameters.deprecate
-    def set_dynamic_time_fn(self_or_cls,time_fn,sublistattr=None):
-        return self_or_cls.param.set_dynamic_time_fn(time_fn,sublistattr=sublistattr)
-
-    @bothmethod
-    @Parameters.deprecate
-    def get_param_values(self_or_cls,onlychanged=False):
-        return self_or_cls.param.get_param_values(onlychanged=onlychanged)
-
-    @bothmethod
-    @Parameters.deprecate
-    def force_new_dynamic_value(cls_or_slf,name): # pylint: disable-msg=E0213
-        return cls_or_slf.param.force_new_dynamic_value(name)
-
-    @bothmethod
-    @Parameters.deprecate
-    def get_value_generator(cls_or_slf,name): # pylint: disable-msg=E0213
-        return cls_or_slf.param.get_value_generator(name)
-
-    @bothmethod
-    @Parameters.deprecate
-    def inspect_value(cls_or_slf,name): # pylint: disable-msg=E0213
-        return cls_or_slf.param.inspect_value(name)
-
-    @Parameters.deprecate
-    def _set_name(self,name):
-        return self.param._set_name(name)
-
-    @Parameters.deprecate
-    def __db_print(self,level,msg,*args,**kw):
-        return self.param.__db_print(level,msg,*args,**kw)
-
-    @Parameters.deprecate
-    def warning(self,msg,*args,**kw):
-        return self.param.warning(msg,*args,**kw)
-
-    @Parameters.deprecate
-    def message(self,msg,*args,**kw):
-        return self.param.message(msg,*args,**kw)
-
-    @Parameters.deprecate
-    def verbose(self,msg,*args,**kw):
-        return self.param.verbose(msg,*args,**kw)
-
-    @Parameters.deprecate
-    def debug(self,msg,*args,**kw):
-        return self.param.debug(msg,*args,**kw)
-
-    @Parameters.deprecate
-    def print_param_values(self):
-        return self.param.print_param_values()
-
-    @Parameters.deprecate
-    def defaults(self):
-        return self.param.defaults()
 
 
 
