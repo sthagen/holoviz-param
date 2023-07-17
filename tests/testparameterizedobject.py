@@ -263,6 +263,37 @@ class TestParameterized(unittest.TestCase):
 
         assert C.name == 'AA'
 
+    def test_constant_parameter_modify_class_before(self):
+        """Test you can set on class and the new default is picked up
+        by new instances"""
+        TestPO.const=9
+        testpo = TestPO()
+        self.assertEqual(testpo.const,9)
+
+    def test_constant_parameter_modify_class_after_init(self):
+        """Test that setting the value on the class doesn't update the instance value
+        even when the instance value hasn't yet been set"""
+        oobj = []
+        class P(param.Parameterized):
+            x = param.Parameter(default=oobj, constant=True)
+
+        p1 = P()
+
+        P.x = nobj = [0]
+        assert P.x is nobj
+        assert p1.x == oobj
+        assert p1.x is oobj
+
+        p2 = P()
+        assert p2.x == nobj
+        assert p2.x is nobj
+
+    def test_constant_parameter_after_init(self):
+        """Test that you can't set a constant parameter after construction."""
+        testpo = TestPO(const=17)
+        self.assertEqual(testpo.const,17)
+        self.assertRaises(TypeError,setattr,testpo,'const',10)
+
     def test_constant_parameter(self):
         """Test that you can't set a constant parameter after construction."""
         testpo = TestPO(const=17)
@@ -273,52 +304,6 @@ class TestParameterized(unittest.TestCase):
         TestPO.const=9
         testpo = TestPO()
         self.assertEqual(testpo.const,9)
-
-    def test_parameter_constant_instantiate(self):
-        # instantiate is automatically set to True when constant=True
-        assert TestPO.param.const.instantiate is True
-
-        class C(param.Parameterized):
-            # instantiate takes precedence when True
-            a = param.Parameter(instantiate=True, constant=False)
-            b = param.Parameter(instantiate=False, constant=False)
-            c = param.Parameter(instantiate=False, constant=True)
-            d = param.Parameter(constant=True)
-            e = param.Parameter(constant=False)
-            f = param.Parameter()
-
-        assert C.param.a.constant is False
-        assert C.param.a.instantiate is True
-        assert C.param.b.constant is False
-        assert C.param.b.instantiate is False
-        assert C.param.c.constant is True
-        assert C.param.c.instantiate is True
-        assert C.param.d.constant is True
-        assert C.param.d.instantiate is True
-        assert C.param.e.constant is False
-        assert C.param.e.instantiate is False
-        assert C.param.f.constant is False
-        assert C.param.f.instantiate is False
-
-    def test_parameter_constant_instantiate_subclass(self):
-
-        obj = object()
-
-        class A(param.Parameterized):
-            x = param.Parameter(obj)
-
-        class B(param.Parameterized):
-            x = param.Parameter(constant=True)
-
-        assert A.param.x.constant is False
-        assert A.param.x.instantiate is False
-        assert B.param.x.constant is True
-        assert B.param.x.instantiate is True
-
-        a = A()
-        b = B()
-        assert a.x is obj
-        assert b.x is not obj
 
     def test_readonly_parameter(self):
         """Test that you can't set a read-only parameter on construction or as an attribute."""
@@ -534,6 +519,174 @@ class TestParameterized(unittest.TestCase):
         msg = "TestPO.__init__() got an unexpected keyword argument 'not_a_param'"
         with pytest.raises(TypeError, match=re.escape(msg)):
             TestPO(not_a_param=2)
+
+    def test_update_class(self):
+        class P(param.Parameterized):
+            x = param.Parameter()
+
+        p = P()
+
+        P.param.update(x=10)
+
+        assert P.x == p.x == 10
+
+    def test_update_context_class(self):
+        class P(param.Parameterized):
+            x = param.Parameter(10)
+
+        p = P()
+
+        with P.param.update(x=20):
+            assert P.x == p.x == 20
+
+        assert P.x == p.x == 10
+
+    def test_update_class_watcher(self):
+        class P(param.Parameterized):
+            x = param.Parameter()
+
+        events = []
+        P.param.watch(events.append, 'x')
+
+        P.param.update(x=10)
+
+        assert len(events) == 1
+        assert events[0].name == 'x' and events[0].new == 10
+
+    def test_update_context_class_watcher(self):
+        class P(param.Parameterized):
+            x = param.Parameter(0)
+
+        events = []
+        P.param.watch(events.append, 'x')
+
+        with P.param.update(x=20):
+            pass
+
+        assert len(events) == 2
+        assert events[0].name == 'x' and events[0].new == 20
+        assert events[1].name == 'x' and events[1].new == 0
+
+    def test_update_instance_watcher(self):
+        class P(param.Parameterized):
+            x = param.Parameter()
+
+        p = P()
+
+        events = []
+        p.param.watch(events.append, 'x')
+
+        p.param.update(x=10)
+
+        assert len(events) == 1
+        assert events[0].name == 'x' and events[0].new == 10
+
+    def test_update_context_instance_watcher(self):
+        class P(param.Parameterized):
+            x = param.Parameter(0)
+
+        p = P()
+
+        events = []
+        p.param.watch(events.append, 'x')
+
+        with p.param.update(x=20):
+            pass
+
+        assert len(events) == 2
+        assert events[0].name == 'x' and events[0].new == 20
+        assert events[1].name == 'x' and events[1].new == 0
+
+    def test_update_error_not_param_class(self):
+        with pytest.raises(ValueError, match="'not_a_param' is not a parameter of TestPO"):
+            TestPO.param.update(not_a_param=1)
+
+    def test_update_error_not_param_instance(self):
+        t = TestPO(inst='foo')
+        with pytest.raises(ValueError, match="'not_a_param' is not a parameter of TestPO"):
+            t.param.update(not_a_param=1)
+
+    def test_update_context_error_not_param_class(self):
+        with pytest.raises(ValueError, match="'not_a_param' is not a parameter of TestPO"):
+            with TestPO.param.update(not_a_param=1):
+                pass
+
+    def test_update_context_error_not_param_instance(self):
+        t = TestPO(inst='foo')
+        with pytest.raises(ValueError, match="'not_a_param' is not a parameter of TestPO"):
+            with t.param.update(not_a_param=1):
+                pass
+
+    def test_update_error_while_updating(self):
+        class P(param.Parameterized):
+            x = param.Parameter(0, readonly=True)
+
+        with pytest.raises(TypeError):
+            P.param.update(x=1)
+
+        assert P.x == 0
+
+        with pytest.raises(TypeError):
+            with P.param.update(x=1):
+                pass
+
+        assert P.x == 0
+
+        p = P()
+
+        with pytest.raises(TypeError):
+            p.param.update(x=1)
+
+        assert p.x == 0
+
+        with pytest.raises(TypeError):
+            with p.param.update(x=1):
+                pass
+
+        assert p.x == 0
+
+    def test_update_error_dict_and_kwargs_instance(self):
+        t = TestPO(inst='foo')
+        with pytest.raises(ValueError, match=re.escape("TestPO.param.update accepts *either* an iterable or key=value pairs, not both")):
+            t.param.update(dict(a=1), a=1)
+
+    def test_update_context_error_dict_and_kwargs_instance(self):
+        t = TestPO(inst='foo')
+        with pytest.raises(ValueError, match=re.escape("TestPO.param.update accepts *either* an iterable or key=value pairs, not both")):
+            with t.param.update(dict(a=1), a=1):
+                pass
+
+    def test_update_error_dict_and_kwargs_class(self):
+        with pytest.raises(ValueError, match=re.escape("TestPO.param.update accepts *either* an iterable or key=value pairs, not both")):
+            TestPO.param.update(dict(a=1), a=1)
+
+    def test_update_context_error_dict_and_kwargs_class(self):
+        with pytest.raises(ValueError, match=re.escape("TestPO.param.update accepts *either* an iterable or key=value pairs, not both")):
+            with TestPO.param.update(dict(a=1), a=1):
+                pass
+
+    def test_update_context_single_parameter(self):
+        t = TestPO(inst='foo')
+        with t.param.update(inst='bar'):
+            assert t.inst == 'bar'
+        assert t.inst == 'foo'
+
+    def test_update_context_does_not_set_other_params(self):
+        t = TestPO(inst='foo')
+        events = []
+        t.param.watch(events.append, list(t.param), onlychanged=False)
+        with t.param.update(inst='bar'):
+            pass
+        assert len(events) == 2
+        assert all(e.name == 'inst' for e in events)
+
+    def test_update_context_multi_parameter(self):
+        t = TestPO(inst='foo', notinst=1)
+        with t.param.update(inst='bar', notinst=2):
+            assert t.inst == 'bar'
+            assert t.notinst == 2
+        assert t.inst == 'foo'
+        assert t.notinst == 1
 
 
 class some_fn(param.ParameterizedFunction):
@@ -1036,3 +1189,62 @@ def test_inheritance_parameter_attribute_without_default():
     with pytest.raises(KeyError, match="Slot 'foo' of parameter 'c' has no default value defined in `_slot_defaults`"):
         class A(param.Parameterized):
             c = CustomParameter()
+
+
+def _dir(obj):
+    return [attr for attr in dir(obj) if not attr.startswith('__')]
+
+
+def test_namespace_class():
+
+    class P(param.Parameterized):
+        x = param.Parameter()
+
+        @param.depends('x', watch=True)
+        def foo(self): pass
+
+    P.x = 1
+    P.param.x
+
+    assert _dir(P) == [
+        '_param__parameters',
+        '_param__private',
+        'foo',
+        'name',
+        'param',
+        'x'
+    ]
+
+
+def test_namespace_inst():
+
+    class P(param.Parameterized):
+        x = param.Parameter()
+
+        @param.depends('x', watch=True)
+        def foo(self): pass
+
+    p = P(x=2)
+    p.param.x
+
+    assert _dir(p) == [
+        '_param__parameters',
+        '_param__private',
+        '_param_watchers',
+        'foo',
+        'name',
+        'param',
+        'x'
+    ]
+
+
+def test_parameterized_access_param_before_super():
+    class P(param.Parameterized):
+        x = param.Parameter(1)
+
+        def __init__(self, **params):
+            # Reaching out to a Parameter default before calling super
+            assert self.x == 1
+            super().__init__(**params)
+
+    P()

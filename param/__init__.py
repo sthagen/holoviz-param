@@ -1691,6 +1691,8 @@ class Selector(SelectorBase, _SignatureSelector):
         # Required as Parameter sets allow_None=True if default is None
         if allow_None is Undefined:
             self.allow_None = self._slot_defaults['allow_None']
+        else:
+            self.allow_None = allow_None
         if self.default is not None and self.check_on_set is True:
             self._validate(self.default)
 
@@ -2967,7 +2969,7 @@ class Event(Boolean):
         if obj is None:
             self.default = val
         else:
-            obj.__dict__[self._internal_name] = val
+            obj._param__private.values[self.name] = val
         self._post_setter(obj, val)
 
     @instance_descriptor
