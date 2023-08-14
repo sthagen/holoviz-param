@@ -4,6 +4,7 @@ Unit test for object selector parameters.
 Originally implemented as doctests in Topographica in the file
 testEnumerationParameter.txt
 """
+import re
 import unittest
 
 from collections import OrderedDict
@@ -118,7 +119,10 @@ class TestSelectorParameters(unittest.TestCase):
 
         P.a = None
         assert P.a is None
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match=re.escape(r"Selector parameter 'P.b' does not accept None; valid options include: '[1]'")
+        ):
             P.b = None
         P.c = None
         assert P.c is None
@@ -247,6 +251,38 @@ class TestSelectorParameters(unittest.TestCase):
             pass
         else:
             raise AssertionError("Selector created without range.")
+
+    def test_check_on_set_on_init_unbound(self):
+
+        i = param.Selector(default=7, objects=[9], check_on_set=False)
+        h = param.Selector(default=None)
+
+        assert i.objects == [9, 7]
+        assert h.objects == []
+
+    @pytest.mark.xfail(raises=AssertionError)
+    def test_check_on_set_on_init_unbound_unsupported(self):
+        # Tricky to update the objects to contain the default on an unbound
+        # Selector as in that case the objects is always an empty list, that
+        # is returned by the objects factory.
+
+        f = param.Selector(default=10)
+
+        assert f.objects == [10]
+
+    def test_check_on_set_on_init_class(self):
+
+        assert self.P.param.i.objects == [9, 7]
+        assert self.P.param.f.objects == [10]
+        assert self.P.param.h.objects == []
+
+    def test_check_on_set_on_init_instance(self):
+
+        p = self.P()
+
+        assert p.param.i.objects == [9, 7]
+        assert p.param.f.objects == [10]
+        assert p.param.h.objects == []
 
     def test_check_on_set_defined(self):
         class P(param.Parameterized):
@@ -382,6 +418,24 @@ class TestSelectorParameters(unittest.TestCase):
         assert b.param.p.objects == [0, 1]
         assert b.param.p.default == 1
         assert b.param.p.check_on_set is True
+
+    def test_inheritance_behavior7(self):
+        class A(param.Parameterized):
+            p = param.Selector(default=0)
+
+        class B(A):
+            p = param.Selector(default=1)
+
+        assert B.param.p.objects == [0, 1]
+        assert B.param.p.default == 1
+        assert B.param.p.check_on_set is False
+
+        b = B()
+
+        assert b.param.p.objects == [0, 1]
+        assert b.param.p.default == 1
+        assert b.param.p.check_on_set is False
+
 
     def test_no_instantiate_when_constant(self):
         # https://github.com/holoviz/param/issues/287
