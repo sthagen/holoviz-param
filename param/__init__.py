@@ -99,7 +99,7 @@ def produce_value(value_obj):
     object: if the object is callable, call it, otherwise return the
     object.
 
-    ..deprecated:: 2.0.0
+    .. deprecated:: 2.0.0
     """
     return _produce_value(value_obj)
 
@@ -111,7 +111,7 @@ def as_unicode(obj):
     Safely casts any object to unicode including regular string
     (i.e. bytes) types in python 2.
 
-    ..deprecated:: 2.0.0
+    .. deprecated:: 2.0.0
     """
     return str(obj)
 
@@ -123,7 +123,7 @@ def is_ordered_dict(d):
     Predicate checking for ordered dictionaries. OrderedDict is always
     ordered, and vanilla Python dictionaries are ordered for Python 3.6+
 
-    ..deprecated:: 2.0.0
+    .. deprecated:: 2.0.0
     """
     py3_ordered_dicts = (sys.version_info.major == 3) and (sys.version_info.minor >= 6)
     vanilla_odicts = (sys.version_info.major > 3) or py3_ordered_dicts
@@ -158,7 +158,7 @@ def hashable(x):
     part of the object has changed.  Does not (currently) recursively
     replace mutable subobjects.
 
-    ..deprecated:: 2.0.0
+    .. deprecated:: 2.0.0
     """
     return _hashable(x)
 
@@ -205,7 +205,7 @@ def named_objs(objlist, namesdict=None):
     an optional name,obj dictionary, which will override any other
     name if that item is present in the dictionary.
 
-    ..deprecated:: 2.0.0
+    .. deprecated:: 2.0.0
     """
     return _named_objs(objlist, namesdict=namesdict)
 
@@ -1666,7 +1666,7 @@ _compute_selector_checking_default = __compute_selector_checking_default()
 
 
 class _SignatureSelector(Parameter):
-
+    # Needs docstring; why is this a separate mixin?
     _slot_defaults = _dict_update(
         SelectorBase._slot_defaults, _objects=_compute_selector_default,
         compute_default_fn=None, check_on_set=_compute_selector_checking_default,
@@ -1748,17 +1748,13 @@ class Selector(SelectorBase, _SignatureSelector):
             self.allow_None = self._slot_defaults['allow_None']
         else:
             self.allow_None = allow_None
-        if self.default is not None and self.check_on_set is True:
-            self._validate(self.default)
+        if self.default is not None:
+            self._validate_value(self.default)
         self._update_state()
 
     def _update_state(self):
-        if (
-            self.check_on_set is False
-            and self.default is not None
-            and self.default not in self.objects
-        ):
-            self.objects.append(self.default)
+        if self.check_on_set is False and self.default is not None:
+            self._ensure_value_is_in_objects(self.default)
 
     @property
     def objects(self):
@@ -1786,18 +1782,17 @@ class Selector(SelectorBase, _SignatureSelector):
         """
         if self.default is None and callable(self.compute_default_fn):
             self.default = self.compute_default_fn()
-            if self.default not in self.objects:
-                self.objects.append(self.default)
+            self._ensure_value_is_in_objects(self.default)
 
     def _validate(self, val):
-        """
-        val must be None or one of the objects in self.objects.
-        """
         if not self.check_on_set:
             self._ensure_value_is_in_objects(val)
             return
 
-        if not (val in self.objects or (self.allow_None and val is None)):
+        self._validate_value(val)
+
+    def _validate_value(self, val):
+        if self.check_on_set and not (self.allow_None and val is None) and val not in self.objects:
             items = []
             limiter = ']'
             length = 0
@@ -2541,7 +2536,7 @@ def abbreviate_paths(pathspec,named_paths):
     Given a dict of (pathname,path) pairs, removes any prefix shared by all pathnames.
     Helps keep menu items short yet unambiguous.
 
-    ..deprecated:: 2.0.0
+    .. deprecated:: 2.0.0
     """
     return _abbreviate_paths(pathspec, named_paths)
 
@@ -2551,6 +2546,10 @@ class FileSelector(Selector):
     Given a path glob, allows one file to be selected from those matching.
     """
     __slots__ = ['path']
+
+    _slot_defaults = _dict_update(
+        Selector._slot_defaults, path="",
+    )
 
     @typing.overload
     def __init__(
@@ -2563,32 +2562,32 @@ class FileSelector(Selector):
         ...
 
     @_deprecate_positional_args
-    def __init__(self, default=Undefined, *, path="", **kwargs):
+    def __init__(self, default=Undefined, *, path=Undefined, **kwargs):
         self.default = default
         self.path = path
-        if default is Undefined:
-            self.update()
-        else:
-            self.update(default=False)
-        super().__init__(default=self.default, objects=self.objects, **kwargs)
+        self.update(path=path)
+        if default is not Undefined:
+            self.default = default
+        super().__init__(default=self.default, objects=self._objects, **kwargs)
 
     def _on_set(self, attribute, old, new):
         super()._on_set(attribute, new, old)
         if attribute == 'path':
-            self.update()
+            self.update(path=new)
 
-    def update(self, default=True):
-        if self.path == "":
+    def update(self, path=Undefined):
+        if path is Undefined:
+            path = self.path
+        if path == "":
             self.objects = []
         else:
             # Convert using os.fspath and pathlib.Path to handle ensure
             # the path separators are consistent (on Windows in particular)
-            pathpattern = os.fspath(pathlib.Path(self.path))
+            pathpattern = os.fspath(pathlib.Path(path))
             self.objects = sorted(glob.glob(pathpattern))
         if self.default in self.objects:
             return
-        if default:
-            self.default = self.objects[0] if self.objects else None
+        self.default = self.objects[0] if self.objects else None
 
     def get_range(self):
         return _abbreviate_paths(self.path,super().get_range())
@@ -2623,16 +2622,34 @@ class ListSelector(Selector):
                     self.objects.append(o)
 
     def _validate(self, val):
+        self._validate_type(val)
+
+        if self.check_on_set:
+            self._validate_value(val)
+        else:
+            self._ensure_value_is_in_objects(val)
+
+
+    def _validate_type(self, val):
         if (val is None and self.allow_None):
             return
+
         if not isinstance(val, list):
             raise ValueError(
                 f"{_validate_error_prefix(self)} only takes list types, "
                 f"not {val!r}."
             )
-        for o in val:
-            super()._validate(o)
 
+    def _validate_value(self, val):
+        self._validate_type(val)
+        if val is not None:
+            for o in val:
+                super()._validate_value(o)
+
+    def _update_state(self):
+        if self.check_on_set is False and self.default is not None:
+            for o in self.default:
+                self._ensure_value_is_in_objects(o)
 
 
 class MultiFileSelector(ListSelector):
@@ -2640,6 +2657,10 @@ class MultiFileSelector(ListSelector):
     Given a path glob, allows multiple files to be selected from the list of matches.
     """
     __slots__ = ['path']
+
+    _slot_defaults = _dict_update(
+        Selector._slot_defaults, path="",
+    )
 
     @typing.overload
     def __init__(
@@ -2652,20 +2673,24 @@ class MultiFileSelector(ListSelector):
         ...
 
     @_deprecate_positional_args
-    def __init__(self, default=Undefined, *, path="", **kwargs):
+    def __init__(self, default=Undefined, *, path=Undefined, **kwargs):
         self.default = default
         self.path = path
-        self.update()
-        super().__init__(default=default, objects=self.objects, **kwargs)
+        self.update(path=path)
+        super().__init__(default=default, objects=self._objects, **kwargs)
 
     def _on_set(self, attribute, old, new):
         super()._on_set(attribute, new, old)
         if attribute == 'path':
-            self.update()
+            self.update(path=new)
 
-    def update(self):
-        self.objects = sorted(glob.glob(self.path))
+    def update(self, path=Undefined):
+        if path is Undefined:
+            path = self.path
+        self.objects = sorted(glob.glob(path))
         if self.default and all([o in self.objects for o in self.default]):
+            return
+        elif not self.default:
             return
         self.default = self.objects
 
