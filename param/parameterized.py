@@ -28,6 +28,7 @@ except ImportError:
 from collections import defaultdict, namedtuple, OrderedDict
 from functools import partial, wraps, reduce
 from html import escape
+from itertools import chain
 from operator import itemgetter, attrgetter
 from types import FunctionType, MethodType
 
@@ -37,15 +38,17 @@ from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 
 from ._utils import (
     DEFAULT_SIGNATURE,
+    ParamDeprecationWarning as _ParamDeprecationWarning,
+    ParamFutureWarning as _ParamFutureWarning,
     _deprecated,
     _deprecate_positional_args,
     _dict_update,
     _is_auto_name,
+    _is_mutable_container,
     _recursive_repr,
     _validate_error_prefix,
-    ParamDeprecationWarning as _ParamDeprecationWarning,
-    ParamFutureWarning as _ParamFutureWarning,
-    _is_mutable_container,
+    accept_arguments,
+    iscoroutinefunction
 )
 
 try:
@@ -368,16 +371,6 @@ def _getattrr(obj, attr, *args):
     return reduce(_getattr, [obj] + attr.split('.'))
 
 
-def accept_arguments(f):
-    """
-    Decorator for decorators that accept arguments
-    """
-    @wraps(f)
-    def _f(*args, **kwargs):
-        return lambda actual_f: f(actual_f, *args, **kwargs)
-    return _f
-
-
 def no_instance_params(cls):
     """
     Disables instance parameters on the class
@@ -386,26 +379,10 @@ def no_instance_params(cls):
     return cls
 
 
-def iscoroutinefunction(function):
-    """
-    Whether the function is an asynchronous coroutine function.
-    """
-    if not hasattr(inspect, 'iscoroutinefunction'):
-        return False
-    import asyncio
-    try:
-        return (
-            inspect.isasyncgenfunction(function) or
-            asyncio.iscoroutinefunction(function)
-        )
-    except AttributeError:
-        return False
-
-
 def _instantiate_param_obj(paramobj, owner=None):
     """Return a Parameter object suitable for instantiation given the class's Parameter object"""
 
-    # Shallow-copy Parameter object
+    # Shallow-copy Parameter object without the watchers
     p = copy.copy(paramobj)
     p.owner = owner
 
@@ -478,90 +455,6 @@ def recursive_repr(fillvalue='...'):
         stacklevel=2,
     )
     return _recursive_repr(fillvalue=fillvalue)
-
-
-@accept_arguments
-def depends(func, *dependencies, watch=False, on_init=False, **kw):
-    """Annotates a function or Parameterized method to express its dependencies.
-
-    The specified dependencies can be either be Parameter instances or if a
-    method is supplied they can be defined as strings referring to Parameters
-    of the class, or Parameters of subobjects (Parameterized objects that are
-    values of this object's parameters). Dependencies can either be on
-    Parameter values, or on other metadata about the Parameter.
-
-    Parameters
-    ----------
-    watch : bool, optional
-        Wether to invoke the function/method when the dependency is updated,
-        by default False
-    on_init : bool, optional
-        Whether to invoke the function/method when the instance is created,
-        by default False
-    """
-    if iscoroutinefunction(func):
-        @wraps(func)
-        async def _depends(*args, **kw):
-            return await func(*args, **kw)
-    else:
-        @wraps(func)
-        def _depends(*args, **kw):
-            return func(*args, **kw)
-
-    deps = list(dependencies)+list(kw.values())
-    string_specs = False
-    for dep in deps:
-        if isinstance(dep, str):
-            string_specs = True
-        elif not isinstance(dep, Parameter):
-            raise ValueError('The depends decorator only accepts string '
-                             'types referencing a parameter or parameter '
-                             'instances, found %s type instead.' %
-                             type(dep).__name__)
-        elif not (isinstance(dep.owner, Parameterized) or
-                  (isinstance(dep.owner, ParameterizedMetaclass))):
-            owner = 'None' if dep.owner is None else '%s class' % type(dep.owner).__name__
-            raise ValueError('Parameters supplied to the depends decorator, '
-                             'must be bound to a Parameterized class or '
-                             'instance not %s.' % owner)
-
-    if (any(isinstance(dep, Parameter) for dep in deps) and
-        any(isinstance(dep, str) for dep in deps)):
-        raise ValueError('Dependencies must either be defined as strings '
-                         'referencing parameters on the class defining '
-                         'the decorated method or as parameter instances. '
-                         'Mixing of string specs and parameter instances '
-                         'is not supported.')
-    elif string_specs and kw:
-        raise AssertionError('Supplying keywords to the decorated method '
-                             'or function is not supported when referencing '
-                             'parameters by name.')
-
-    if not string_specs and watch: # string_specs case handled elsewhere (later), in Parameterized.__init__
-        if iscoroutinefunction(func):
-            async def cb(*events):
-                args = (getattr(dep.owner, dep.name) for dep in dependencies)
-                dep_kwargs = {n: getattr(dep.owner, dep.name) for n, dep in kw.items()}
-                await func(*args, **dep_kwargs)
-        else:
-            def cb(*events):
-                args = (getattr(dep.owner, dep.name) for dep in dependencies)
-                dep_kwargs = {n: getattr(dep.owner, dep.name) for n, dep in kw.items()}
-                return func(*args, **dep_kwargs)
-
-        grouped = defaultdict(list)
-        for dep in deps:
-            grouped[id(dep.owner)].append(dep)
-        for group in grouped.values():
-            group[0].owner.param.watch(cb, [dep.name for dep in group])
-
-    _dinfo = getattr(func, '_dinfo', {})
-    _dinfo.update({'dependencies': dependencies,
-                   'kw': kw, 'watch': watch, 'on_init': on_init})
-
-    _depends._dinfo = _dinfo
-
-    return _depends
 
 
 @accept_arguments
@@ -899,25 +792,34 @@ class ParameterMetaclass(type):
     """
     Metaclass allowing control over creation of Parameter classes.
     """
-    def __new__(mcs,classname,bases,classdict):
+    def __new__(mcs, classname, bases, classdict):
 
         # store the class's docstring in __classdoc
         if '__doc__' in classdict:
             classdict['__classdoc']=classdict['__doc__']
 
         # when asking for help on Parameter *object*, return the doc slot
-        classdict['__doc__']=property(attrgetter('doc'))
+        classdict['__doc__'] = property(attrgetter('doc'))
+
+        # Compute all slots in order, using a dict later turned into a list
+        # as it's the fastest way to get an ordered set in Python
+        all_slots = {}
+        for bcls in set(chain(*(base.__mro__[::-1] for base in bases))):
+            all_slots.update(dict.fromkeys(getattr(bcls, '__slots__', [])))
 
         # To get the benefit of slots, subclasses must themselves define
         # __slots__, whether or not they define attributes not present in
         # the base Parameter class.  That's because a subclass will have
         # a __dict__ unless it also defines __slots__.
         if '__slots__' not in classdict:
-            classdict['__slots__']=[]
+            classdict['__slots__'] = []
+        else:
+            all_slots.update(dict.fromkeys(classdict['__slots__']))
+
+        classdict['_all_slots_'] = list(all_slots)
 
         # No special handling for a __dict__ slot; should there be?
-
-        return type.__new__(mcs,classname,bases,classdict)
+        return type.__new__(mcs, classname, bases, classdict)
 
     def __getattribute__(mcs,name):
         if name=='__doc__':
@@ -1274,6 +1176,11 @@ class Parameter(_ParameterBase):
                                                     safe=safe, subset=subset)
 
     @property
+    def rx(self):
+        from .reactive import reactive_ops
+        return reactive_ops(self)
+
+    @property
     def label(self):
         if self.name and self._label is None:
             return label_formatter(self.name)
@@ -1310,29 +1217,29 @@ class Parameter(_ParameterBase):
             self.instantiate = self._slot_defaults['instantiate']
 
     def __setattr__(self, attribute, value):
-        if attribute == 'name' and getattr(self, 'name', None) and value != self.name:
-            raise AttributeError("Parameter name cannot be modified after "
-                                 "it has been bound to a Parameterized.")
+        if attribute == 'name':
+            name = getattr(self, 'name', None)
+            if name is not None and value != name:
+                raise AttributeError("Parameter name cannot be modified after "
+                                     "it has been bound to a Parameterized.")
 
-        implemented = (attribute != "default" and hasattr(self, 'watchers') and attribute in self.watchers)
-        slot_attribute = attribute in get_all_slots(type(self))
-        try:
-            old = getattr(self, attribute) if implemented else NotImplemented
-            if slot_attribute:
+        is_slot = attribute in self.__class__._all_slots_
+        has_watcher = attribute != "default" and attribute in getattr(self, 'watchers', [])
+        if not (is_slot or has_watcher):
+            # Return early if attribute is not a slot
+            return super().__setattr__(attribute, value)
+
+        # Otherwise get the old value so we can call watcher/on_set
+        old = getattr(self, attribute, NotImplemented)
+        if is_slot:
+            try:
                 self._on_set(attribute, old, value)
-        except AttributeError as e:
-            if slot_attribute:
-                # If Parameter slot is defined but an AttributeError was raised
-                # we are in __setstate__ and watchers should not be triggered
-                old = NotImplemented
-            else:
-                raise e
+            except AttributeError:
+                pass
 
-        super(Parameter, self).__setattr__(attribute, value)
-
-        if old is NotImplemented:
-            return
-        self._trigger_event(attribute, old, value)
+        super().__setattr__(attribute, value)
+        if has_watcher and old is not NotImplemented:
+            self._trigger_event(attribute, old, value)
 
     def _trigger_event(self, attribute, old, new):
         event = Event(what=attribute, name=self.name, obj=None, cls=self.owner,
@@ -1523,28 +1430,12 @@ class Parameter(_ParameterBase):
         All Parameters have slots, not a dict, so we have to support
         pickle and deepcopy ourselves.
         """
-        state = {}
-        for slot in get_occupied_slots(self):
-            state[slot] = getattr(self,slot)
-        return state
+        return {slot: getattr(self, slot) for slot in self.__class__._all_slots_}
 
     def __setstate__(self,state):
         # set values of __slots__ (instead of in non-existent __dict__)
-
-        # Handle renamed slots introduced for instance params
-        if '_attrib_name' in state:
-            state['name'] = state.pop('_attrib_name')
-        if '_owner' in state:
-            state['owner'] = state.pop('_owner')
-        if 'watchers' not in state:
-            state['watchers'] = {}
-        if 'per_instance' not in state:
-            state['per_instance'] = False
-        if '_label' not in state:
-            state['_label'] = None
-
-        for (k,v) in state.items():
-            setattr(self,k,v)
+        for k, v in state.items():
+            setattr(self, k, v)
 
 
 # Define one particular type of Parameter that is used in this file
@@ -3348,10 +3239,8 @@ class ParameterizedMetaclass(type):
         """
         # get all relevant slots (i.e. slots defined in all
         # superclasses of this parameter)
-        slots = {}
         p_type = type(param)
-        for p_class in classlist(p_type)[1::]:
-            slots.update(dict.fromkeys(p_class.__slots__))
+        slots = dict.fromkeys(p_type._all_slots_)
 
         # note for some eventual future: python 3.6+ descriptors grew
         # __set_name__, which could replace this and _set_names
