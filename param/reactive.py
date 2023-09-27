@@ -112,6 +112,10 @@ class Trigger(Parameterized):
 
     value = Event()
 
+    def __init__(self, parameters, **params):
+        super().__init__(**params)
+        self.parameters = parameters
+
 
 class reactive_ops:
     """
@@ -179,6 +183,15 @@ class reactive_ops:
         rxi = self._reactive if isinstance(self._reactive, rx) else self()
         return rxi._apply_operator(func, *args, **kwargs)
 
+    def updating(self):
+        """
+        Returns a new expression that is True while the expression is updating.
+        """
+        wrapper = Wrapper(object=False)
+        self._watch(lambda e: wrapper.param.update(object=True), precedence=-999)
+        self._watch(lambda e: wrapper.param.update(object=False), precedence=999)
+        return wrapper.param.object.rx()
+
     def when(self, *dependencies):
         """
         Returns a reactive expression that emits the contents of this
@@ -205,7 +218,11 @@ class reactive_ops:
         """
         xrefs = resolve_ref(x)
         yrefs = resolve_ref(y)
-        trigger = Trigger()
+        if isinstance(self._reactive, rx):
+            params = self._reactive._params
+        else:
+            params = resolve_ref(self._reactive)
+        trigger = Trigger(parameters=params)
         if xrefs:
             def trigger_x(*args):
                 if self.resolve():
@@ -217,9 +234,9 @@ class reactive_ops:
                     trigger.param.trigger('value')
             bind(trigger_y, *yrefs, watch=True)
 
-        def ternary(condition, event):
+        def ternary(condition, _):
             return resolve_value(x) if condition else resolve_value(y)
-        return self.pipe(ternary, trigger.param.value)
+        return bind(ternary, self._reactive, trigger.param.value)
 
     # Operations to get the output and set the input of an expression
 
@@ -269,10 +286,17 @@ class reactive_ops:
             prev = None
         return self._reactive
 
-    def watch(self, fn):
+    def watch(self, fn, onlychanged=True, queued=False, precedence=0):
         """
         Adds a callback that observes the output of the pipeline.
         """
+        if precedence < 0:
+            raise ValueError("User-defined watch callbacks must declare "
+                             "a positive precedence. Negative precedences "
+                             "are reserved for internal Watchers.")
+        self._watch(fn, onlychanged=onlychanged, queued=queued, precedence=precedence)
+
+    def _watch(self, fn, onlychanged=True, queued=False, precedence=0):
         def cb(*args):
             fn(self.resolve())
 
@@ -281,7 +305,10 @@ class reactive_ops:
         else:
             params = resolve_ref(self._reactive)
         for _, group in full_groupby(params, lambda x: id(x.owner)):
-            group[0].owner.param.watch(cb, [dep.name for dep in group])
+            group[0].owner.param._watch(
+                cb, [dep.name for dep in group], onlychanged=onlychanged,
+                queued=queued, precedence=precedence
+            )
 
 
 def bind(function, *args, watch=False, **kwargs):
@@ -540,6 +567,15 @@ class rx:
             self._prev = obj
         else:
             self._prev = prev
+        self._root = self._compute_root()
+        self._fn_params = self._compute_fn_params()
+        self._internal_params = self._compute_params()
+        # Filter params that external objects depend on, ensuring
+        # that Trigger parameters do not cause double execution
+        self._params = [
+            p for p in self._internal_params if not isinstance(p.owner, Trigger)
+            or any (p not in self._internal_params for p in p.owner.parameters)
+        ]
         self._setup_invalidations(depth)
         self._kwargs = kwargs
         self.rx = reactive_ops(self)
@@ -575,8 +611,15 @@ class rx:
             self.rx.resolve()
         return self._current_
 
-    @property
-    def _fn_params(self) -> list[Parameter]:
+    def _compute_root(self):
+        if self._prev is None:
+            return self
+        root = self
+        while root._prev is not None:
+            root = root._prev
+        return root
+
+    def _compute_fn_params(self) -> list[Parameter]:
         if self._fn is None:
             return []
 
@@ -592,17 +635,7 @@ class rx:
         kwargs = list(dinfo.get('kw', {}).values())
         return args + kwargs
 
-    @property
-    def _root(self):
-        if self._prev is None:
-            return self
-        root = self
-        while root._prev is not None:
-            root = root._prev
-        return root
-
-    @property
-    def _params(self) -> list[Parameter]:
+    def _compute_params(self) -> list[Parameter]:
         ps = self._fn_params
 
         # Collect parameters on previous objects in chain
@@ -617,14 +650,11 @@ class rx:
             return ps
 
         # Accumulate dependencies in args and/or kwargs
-        ps += [
-            ref for arg in self._operation['args']
-            for ref in resolve_ref(arg)
-        ]
-        ps += [
-            ref for arg in self._operation['kwargs'].values()
-            for ref in resolve_ref(arg)
-        ]
+        for arg in list(self._operation['args'])+list(self._operation['kwargs'].values()):
+            for ref in resolve_ref(arg):
+                if ref not in ps:
+                    ps.append(ref)
+
         return ps
 
     def _setup_invalidations(self, depth: int = 0):
@@ -649,7 +679,7 @@ class rx:
         if self._fn is not None:
             for _, params in full_groupby(self._fn_params, lambda x: id(x.owner)):
                 params[0].owner.param._watch(self._invalidate_obj, [p.name for p in params], precedence=-1)
-        for _, params in full_groupby(self._params, lambda x: id(x.owner)):
+        for _, params in full_groupby(self._internal_params, lambda x: id(x.owner)):
             params[0].owner.param._watch(self._invalidate_current, [p.name for p in params], precedence=-1)
 
     def _invalidate_current(self, *events):
