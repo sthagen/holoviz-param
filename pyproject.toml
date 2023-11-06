@@ -53,8 +53,8 @@ tests-deser = [
     "xlrd",
     "openpyxl",
     "odfpy",
-    "feather-format",
     "pyarrow",
+    "tables",
 ]
 tests-examples = [
     "pytest",
@@ -97,15 +97,15 @@ source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 include = [
-    "param",
-    "numbergen",
+    "/param",
+    "/numbergen",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "param",
-    "numbergen",
-    "tests",
+    "/param",
+    "/numbergen",
+    "/tests",
 ]
 
 [tool.hatch.build.hooks.vcs]
@@ -185,7 +185,6 @@ name."^(?!pypy).*".dependencies = [
     "xlrd",
     "openpyxl",
     "odfpy",
-    "feather-format",
     "pyarrow",
     "cloudpickle",
     "nest_asyncio",
