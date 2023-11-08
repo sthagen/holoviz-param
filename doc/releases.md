@@ -1,5 +1,27 @@
 # Releases
 
+## Version 2.0.1
+
+Date: 2023-11-08
+
+This minor release fixes a number of bugs, including a regression introduced by the replacement of the build backend (`setuptools` for `hatchling`) which led to the `doc` folder being wrongly packaged. Many thanks to @SultanOrazbayev for their first contribution, to @musicinmybrain for spotting the regression and submitting fixes, and to the maintainers @Hoxbro, @jbednar and @maximlt for contributing to this release.
+
+Bug fixes:
+
+- Do not install `doc` folder in *site-packages* ([#878](https://github.com/holoviz/param/pull/878))
+- Drop the `feather-format` test dependency ([#879](https://github.com/holoviz/param/pull/879))
+- Add `tables` to the `tests-deser` extra ([#880](https://github.com/holoviz/param/pull/880))
+- Fix `_state_push` and `_state_pop` ([#884](https://github.com/holoviz/param/pull/884))
+- `version.py`: new process should not create a window on Windows ([#882](https://github.com/holoviz/param/pull/882), [#886](https://github.com/holoviz/param/pull/886))
+- Don't import `setuptools_scm` if the `.git` folder doesn't exist ([#885](https://github.com/holoviz/param/pull/885))
+
+Documentation:
+
+- Add migration guide to Param 2.0 ([#883](https://github.com/holoviz/param/pull/883))
+- Update Parameter API reference ([#881](https://github.com/holoviz/param/pull/881))
+
+[*Full Changelog*](https://github.com/holoviz/param/compare/v2.0.0...v2.0.1)
+
 ## Version 2.0.0
 
 Date: 2023-10-24
@@ -89,7 +111,7 @@ We would like to thank @minimav for their first contribution, and @droumis, @Hox
 - No longer supports setting non-Parameter class attributes during initialization, and no longer warns when setting non-Parameter class attributes directly ([#729](https://github.com/holoviz/param/pull/729))
 - `instance.param.watchers` no longer returns the transient dict of watchers but instead returns the instance watchers, as the now deprecated `instance._param_watchers` ([#797](https://github.com/holoviz/param/pull/797))
 - Removed deprecated `Parameterized.pprint`, `Parameterized._pprint`, `Parameterized.script_repr`, `ParameterizedFunction.script_repr` ([#767](https://github.com/holoviz/param/pull/767))
-- Removed `Time.next` method needed only for Param 2, and moved `Parameterized.state_pop` and `Parameterized.state_push` to the `.param` namespace ([#767](https://github.com/holoviz/param/pull/767))
+- Removed `Time.next` method needed only for Python 2, and moved `Parameterized.state_pop` and `Parameterized.state_push` to the `.param` namespace ([#767](https://github.com/holoviz/param/pull/767))
 - Some removals were considered harmless and thus implemented immediately without a deprecation period:
   - Removed unused `bounds` slot from `Boolean` and `Event` ([#744](https://github.com/holoviz/param/pull/744), [#755](https://github.com/holoviz/param/pull/755))
   - Removed private Parameter `_internal_name` slot ([#796](https://github.com/holoviz/param/pull/796))
