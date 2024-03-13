@@ -67,6 +67,8 @@ class Parameters(param.Parameterized):
 
     boolean = param.Boolean(default=False)
 
+    parameter = param.Parameter(allow_refs=False)
+
     event = param.Event()
 
     @param.depends('integer')
@@ -433,6 +435,96 @@ def test_reactive_when_initial():
     p.param.trigger('event')
     assert integer.rx.value == 4
 
+def test_reactive_resolve():
+    p = Parameters(integer=3)
+    p2 = Parameters(parameter=p.param.integer)
+
+    prx = p2.param.parameter.rx()
+    assert prx.rx.value is p.param.integer
+
+    resolved_prx = prx.rx.resolve()
+    assert resolved_prx.rx.value == 3
+
+    changes = []
+    resolved_prx.rx.watch(changes.append)
+
+    # Test changing referenced value
+    p.integer = 4
+    assert resolved_prx.rx.value == 4
+    assert changes == [4]
+
+    # Test changing reference itself
+    p2.parameter = p.param.number
+    assert resolved_prx.rx.value == 3.14
+    assert changes == [4, 3.14]
+
+    # Ensure no updates triggered when old reference is updated
+    p.integer = 5
+    assert resolved_prx.rx.value == 3.14
+    assert changes == [4, 3.14]
+
+def test_reactive_resolve_nested():
+    p = Parameters(integer=3)
+    p2 = Parameters(parameter=[p.param.integer])
+
+    prx = p2.param.parameter.rx()
+    assert prx.rx.value == [p.param.integer]
+
+    resolved_prx = prx.rx.resolve(nested=True)
+    assert resolved_prx.rx.value == [3]
+
+    changes = []
+    resolved_prx.rx.watch(changes.append)
+
+    # Test changing referenced value
+    p.integer = 4
+    assert resolved_prx.rx.value == [4]
+    assert changes == [[4]]
+
+    # Test changing reference itself
+    p2.parameter = [p.param.number]
+    assert resolved_prx.rx.value == [3.14]
+    assert changes == [[4], [3.14]]
+
+    # Ensure no updates triggered when old reference is updated
+    p.integer = 5
+    assert resolved_prx.rx.value == [3.14]
+    assert changes == [[4], [3.14]]
+
+def test_reactive_resolve_recursive():
+    p = Parameters(integer=3)
+    p2 = Parameters(parameter=p.param.integer)
+    p3 = Parameters(parameter=p2.param.parameter)
+
+    prx = p3.param.parameter.rx()
+    assert prx.rx.value is p2.param.parameter
+
+    resolved_prx = prx.rx.resolve(recursive=True)
+    assert resolved_prx.rx.value == 3
+
+    changes = []
+    resolved_prx.rx.watch(changes.append)
+
+    # Test changing referenced value
+    p.integer = 4
+    assert resolved_prx.rx.value == 4
+    assert changes == [4]
+
+    # Test changing recursive reference
+    p2.parameter = p.param.number
+    assert resolved_prx.rx.value == 3.14
+    assert changes == [4, 3.14]
+
+    # Ensure no updates triggered when old reference is updated
+    p.integer = 5
+    assert resolved_prx.rx.value == 3.14
+    assert changes == [4, 3.14]
+
+    # Test changing reference itself
+    p3.parameter = p.param.string
+    assert resolved_prx.rx.value == 'string'
+    assert changes == [4, 3.14, 'string']
+
 async def test_reactive_async_func():
     async def async_func():
         await asyncio.sleep(0.02)
@@ -508,3 +600,26 @@ async def test_reactive_async_gen_with_dep():
     irx.rx.value = 4
     await asyncio.sleep(0.1)
     assert rxgen.rx.value == 5
+
+def test_root_invalidation():
+    arx = rx('a')
+    brx = rx('b')
+
+    computed = []
+    def debug(value, info):
+        computed.append(info)
+        return value
+
+    expr = arx.title().rx.pipe(debug, '1') + brx.title().rx.pipe(debug, '2')
+
+    assert expr.rx.value == 'AB'
+    assert computed == ['1', '2']
+
+    brx.rx.value = 'c'
+
+    assert expr.rx.value == 'AC'
+    assert computed == ['1', '2', '2']
+
+    arx.rx.value = 'd'
+    assert expr.rx.value == 'DC'
+    assert computed == ['1', '2', '2', '1']
