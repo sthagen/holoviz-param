@@ -36,7 +36,6 @@ from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 from . import serializer
 from ._utils import (
     DEFAULT_SIGNATURE,
-    ParamDeprecationWarning as _ParamDeprecationWarning,
     ParamFutureWarning as _ParamFutureWarning,
     Skip,
     _deprecated,
@@ -286,7 +285,7 @@ def _batch_call_watchers(parameterized, enable=True, run=True):
 
 
 # PARAM3_DEPRECATION
-@_deprecated(extra_msg="Use instead `batch_call_watchers`.")
+@_deprecated(extra_msg="Use instead `batch_call_watchers`.", warning_cat=_ParamFutureWarning)
 @contextmanager
 def batch_watch(parameterized, enable=True, run=True):
     with _batch_call_watchers(parameterized, enable, run):
@@ -395,7 +394,7 @@ def get_occupied_slots(instance):
 
 
 # PARAM3_DEPRECATION
-@_deprecated()
+@_deprecated(warning_cat=_ParamFutureWarning)
 def all_equal(arg1,arg2):
     """
     Return a single boolean for arg1==arg2, even for numpy arrays
@@ -422,7 +421,7 @@ def all_equal(arg1,arg2):
 # (https://docs.python.org/3/reference/datamodel.html#customizing-class-creation)
 #
 # Code from six (https://bitbucket.org/gutworth/six; version 1.4.1).
-@_deprecated()
+@_deprecated(warning_cat=_ParamFutureWarning)
 def add_metaclass(metaclass):
     """Class decorator for creating a class with a metaclass.
 
@@ -544,7 +543,7 @@ def recursive_repr(fillvalue='...'):
     """
     warnings.warn(
         'recursive_repr has been deprecated and will be removed in a future version.',
-        category=_ParamDeprecationWarning,
+        category=_ParamFutureWarning,
         stacklevel=2,
     )
     return _recursive_repr(fillvalue=fillvalue)
@@ -1483,7 +1482,7 @@ class Parameter(_ParameterBase):
                 # PARAM3_DEPRECATION
                 warnings.warn(
                     'Number.set_hook has been deprecated.',
-                    category=_ParamDeprecationWarning,
+                    category=_ParamFutureWarning,
                     stacklevel=6,
                 )
 
@@ -2222,7 +2221,7 @@ class Parameters:
     # Classmethods
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="""Use instead `for k,v in p.param.objects().items(): print(f"{p.__class__.name}.{k}={repr(v.default)}")`""")
+    @_deprecated(extra_msg="""Use instead `for k,v in p.param.objects().items(): print(f"{p.__class__.name}.{k}={repr(v.default)}")`""", warning_cat=_ParamFutureWarning)
     def print_param_defaults(self_):
         """Print the default values of all cls's Parameters.
 
@@ -2235,7 +2234,7 @@ class Parameters:
                 print(cls.__name__+'.'+key+ '='+ repr(val.default))
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="Use instead `p.param.default =`")
+    @_deprecated(extra_msg="Use instead `p.param.default =`", warning_cat=_ParamFutureWarning)
     def set_default(self_,param_name,value):
         """
         Set the default value of param_name.
@@ -2266,7 +2265,7 @@ class Parameters:
         cls._param__private.params.clear()
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="Use instead `.param.add_parameter`")
+    @_deprecated(extra_msg="Use instead `.param.add_parameter`", warning_cat=_ParamFutureWarning)
     def _add_parameter(self_,param_name, param_obj):
         """Add a new Parameter object into this object's class.
 
@@ -2275,7 +2274,7 @@ class Parameters:
         return self_.add_parameter(param_name, param_obj)
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="Use instead `.param.values()` or `.param['param']`")
+    @_deprecated(extra_msg="Use instead `.param.values()` or `.param['param']`", warning_cat=_ParamFutureWarning)
     def params(self_, parameter_name=None):
         """
         Return the Parameters of this class as the
@@ -2358,7 +2357,7 @@ class Parameters:
         return restore
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="Use instead `.param.update`")
+    @_deprecated(extra_msg="Use instead `.param.update`", warning_cat=_ParamFutureWarning)
     def set_param(self_, *args,**kwargs):
         """
         For each param=value keyword argument, sets the corresponding
@@ -2419,15 +2418,13 @@ class Parameters:
         instance='existing'.
         """
         if self_.self is not None and not self_.self._param__private.initialized and instance is True:
-            warnings.warn(
+            raise RuntimeError(
                 'Looking up instance Parameter objects (`.param.objects()`) until '
-                'the Parameterized instance has been fully initialized is deprecated and will raise an error in a future version. '
+                'the Parameterized instance has been fully initialized is not allowed. '
                 'Ensure you have called `super().__init__(**params)` in your Parameterized '
                 'constructor before trying to access instance Parameter objects, or '
                 'looking up the class Parameter objects with `.param.objects(instance=False)` '
                 'may be enough for your use case.',
-                category=_ParamFutureWarning,
-                stacklevel=2,
             )
 
         pdict = self_._cls_parameters
@@ -2449,13 +2446,10 @@ class Parameters:
         that it is clear which Event parameter has been triggered.
         """
         if self_.self is not None and not self_.self._param__private.initialized:
-            warnings.warn(
+            raise RuntimeError(
                 'Triggering watchers on a partially initialized Parameterized instance '
-                'is deprecated and will raise an error in a future version. '
-                'Ensure you have called super().__init__(**params) in '
+                'is not allowed. Ensure you have called super().__init__(**params) in '
                 'the Parameterized instance constructor before trying to set up a watcher.',
-                category=_ParamFutureWarning,
-                stacklevel=2,
             )
 
         trigger_params = [p for p in self_
@@ -2626,7 +2620,7 @@ class Parameters:
     @_deprecated(extra_msg="""
         Use `.param.values().items()` instead (or `.param.values()` for the
         common case of `dict(....param.get_param_values())`)
-    """)
+    """, warning_cat=_ParamFutureWarning)
     def get_param_values(self_, onlychanged=False):
         """
         Return a list of name,value pairs for all Parameters of this
@@ -2768,7 +2762,7 @@ class Parameters:
             self_.self, deps, dynamic, intermediate=intermediate)
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg='Use instead `.param.method_dependencies`')
+    @_deprecated(extra_msg='Use instead `.param.method_dependencies`', warning_cat=_ParamFutureWarning)
     def params_depended_on(self_, *args, **kwargs):
         """
         Given the name of a method, returns a PInfo object for each dependency
@@ -2792,8 +2786,6 @@ class Parameters:
         outputs = {}
         for cls in classlist(self_.cls):
             for name in dir(cls):
-                if name == '_param_watchers':
-                    continue
                 method = getattr(self_.self_or_cls, name)
                 dinfo = getattr(method, '_dinfo', {})
                 if 'outputs' not in dinfo:
@@ -2904,13 +2896,10 @@ class Parameters:
 
     def _register_watcher(self_, action, watcher, what='value'):
         if self_.self is not None and not self_.self._param__private.initialized:
-            warnings.warn(
+            raise RuntimeError(
                 '(Un)registering a watcher on a partially initialized Parameterized instance '
-                'is deprecated and will raise an error in a future version. Ensure '
-                'you have called super().__init__(**) in the Parameterized instance '
-                'constructor before trying to set up a watcher.',
-                category=_ParamFutureWarning,
-                stacklevel=4,
+                'is not allowed. Ensure you have called super().__init__(**) in the '
+                'Parameterized instance constructor before trying to set up a watcher.',
             )
 
         parameter_names = watcher.parameter_names
@@ -3018,7 +3007,7 @@ class Parameters:
     # Instance methods
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="Use instead `{k:v.default for k,v in p.param.objects().items()}`")
+    @_deprecated(extra_msg="Use instead `{k:v.default for k,v in p.param.objects().items()}`", warning_cat=_ParamFutureWarning)
     def defaults(self_):
         """
         Return {parameter_name:parameter.default} for all non-constant
@@ -3059,7 +3048,7 @@ class Parameters:
             get_logger(name=self_or_cls.name).log(level, msg, *args, **kw)
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="""Use instead `for k,v in p.param.objects().items(): print(f"{p.__class__.name}.{k}={repr(v.default)}")`""")
+    @_deprecated(extra_msg="""Use instead `for k,v in p.param.objects().items(): print(f"{p.__class__.name}.{k}={repr(v.default)}")`""", warning_cat=_ParamFutureWarning)
     def print_param_values(self_):
         """Print the values of all this object's Parameters.
 
@@ -3081,7 +3070,7 @@ class Parameters:
         self_.log(WARNING, msg, *args, **kw)
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="Use instead `.param.log(param.MESSAGE, ...)`")
+    @_deprecated(extra_msg="Use instead `.param.log(param.MESSAGE, ...)`", warning_cat=_ParamFutureWarning)
     def message(self_,msg,*args,**kw):
         """
         Print msg merged with args as a message.
@@ -3094,7 +3083,7 @@ class Parameters:
         self_.__db_print(INFO,msg,*args,**kw)
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="Use instead `.param.log(param.VERBOSE, ...)`")
+    @_deprecated(extra_msg="Use instead `.param.log(param.VERBOSE, ...)`", warning_cat=_ParamFutureWarning)
     def verbose(self_,msg,*args,**kw):
         """
         Print msg merged with args as a verbose message.
@@ -3107,7 +3096,7 @@ class Parameters:
         self_.__db_print(VERBOSE,msg,*args,**kw)
 
     # PARAM3_DEPRECATION
-    @_deprecated(extra_msg="Use instead `.param.log(param.DEBUG, ...)`")
+    @_deprecated(extra_msg="Use instead `.param.log(param.DEBUG, ...)`", warning_cat=_ParamFutureWarning)
     def debug(self_,msg,*args,**kw):
         """
         Print msg merged with args as a debugging statement.
@@ -3652,8 +3641,7 @@ class ParameterizedMetaclass(type):
             # might raise other types of error, so we catch them all.
             except Exception as e:
                 msg = f'{_validate_error_prefix(param)} failed to validate its ' \
-                      'default value on class creation, this is going to raise ' \
-                      'an error in the future. '
+                      'default value on class creation. '
                 parents = ', '.join(klass.__name__ for klass in mcs.__mro__[1:-2])
                 if not type_change and slot_overridden:
                     msg += (
@@ -3674,11 +3662,7 @@ class ParameterizedMetaclass(type):
                     # performance reasons.
                     pass
                 msg += f'\nValidation failed with:\n{e}'
-                warnings.warn(
-                    msg,
-                    category=_ParamFutureWarning,
-                    stacklevel=4,
-                )
+                raise RuntimeError(msg) from e
 
     def get_param_descriptor(mcs,param_name):
         """
@@ -4196,18 +4180,6 @@ class Parameterized(metaclass=ParameterizedMetaclass):
     def param(self):
         return Parameters(self.__class__, self=self)
 
-    #PARAM3_DEPRECATION
-    @property
-    @_deprecated(extra_msg="Use `inst.param.watchers` instead.", warning_cat=_ParamFutureWarning)
-    def _param_watchers(self):
-        return self._param__private.watchers
-
-    #PARAM3_DEPRECATION
-    @_param_watchers.setter
-    @_deprecated(extra_msg="Use `inst.param.watchers = ...` instead.", warning_cat=_ParamFutureWarning)
-    def _param_watchers(self, value):
-        self._param__private.watchers = value
-
     # 'Special' methods
 
     def __getstate__(self):
@@ -4538,7 +4510,7 @@ class overridable_property:
     def __init__(self, fget=None, fset=None, fdel=None, doc=None):
         warnings.warn(
             message="overridable_property has been deprecated.",
-            category=_ParamDeprecationWarning,
+            category=_ParamFutureWarning,
             stacklevel=2,
         )
         self.fget = fget
