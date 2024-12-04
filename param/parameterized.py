@@ -124,9 +124,10 @@ def register_reference_transform(transform):
     Appends a transform to extract potential parameter dependencies
     from an object.
 
-    Arguments
+    Arguments:
     ---------
     transform: Callable[Any, Any]
+
     """
     return _reference_transforms.append(transform)
 
@@ -145,7 +146,8 @@ def transform_reference(arg):
     return arg
 
 def eval_function_with_deps(function):
-    """Evaluates a function after resolving its dependencies.
+    """
+    Evaluates a function after resolving its dependencies.
 
     Calls and returns a function after resolving any dependencies
     stored on the _dinfo attribute and passing the resolved values
@@ -423,7 +425,8 @@ def all_equal(arg1,arg2):
 # Code from six (https://bitbucket.org/gutworth/six; version 1.4.1).
 @_deprecated(warning_cat=_ParamFutureWarning)
 def add_metaclass(metaclass):
-    """Class decorator for creating a class with a metaclass.
+    """
+    Class decorator for creating a class with a metaclass.
 
     .. deprecated:: 2.0.0
     """
@@ -445,6 +448,7 @@ class bothmethod:
     object (if called on the class) or the instance object
     (if called on the instance) as its first argument.
     """
+
     def __init__(self, method):
         self.method = method
 
@@ -473,7 +477,6 @@ def no_instance_params(cls):
 
 def _instantiate_param_obj(paramobj, owner=None):
     """Return a Parameter object suitable for instantiation given the class's Parameter object"""
-
     # Shallow-copy Parameter object without the watchers
     p = copy.copy(paramobj)
     p.owner = owner
@@ -911,6 +914,7 @@ class ParameterMetaclass(type):
     """
     Metaclass allowing control over creation of Parameter classes.
     """
+
     def __new__(mcs, classname, bases, classdict):
 
         # store the class's docstring in __classdoc
@@ -1192,8 +1196,8 @@ class Parameter(_ParameterBase):
                  instantiate=Undefined, constant=Undefined, readonly=Undefined,
                  pickle_default_value=Undefined, allow_None=Undefined,
                  per_instance=Undefined, allow_refs=Undefined, nested_refs=Undefined):
-
-        """Initialize a new Parameter object and store the supplied attributes:
+        """
+        Initialize a new Parameter object and store the supplied attributes:
 
         default: the owning class's value for the attribute represented
         by this Parameter, which can be overridden in an instance.
@@ -1272,7 +1276,6 @@ class Parameter(_ParameterBase):
         inheritance of Parameter slots (attributes) from the owning-class'
         class hierarchy (see ParameterizedMetaclass).
         """
-
         self.name = None
         self.owner = None
         self.allow_refs = allow_refs
@@ -1291,12 +1294,12 @@ class Parameter(_ParameterBase):
 
     @classmethod
     def serialize(cls, value):
-        "Given the parameter value, return a Python value suitable for serialization"
+        """Given the parameter value, return a Python value suitable for serialization"""
         return value
 
     @classmethod
     def deserialize(cls, value):
-        "Given a serializable Python value, return a value that the parameter can be set to"
+        """Given a serializable Python value, return a value that the parameter can be set to"""
         return value
 
     def schema(self, safe=False, subset=None, mode='json'):
@@ -1307,6 +1310,39 @@ class Parameter(_ParameterBase):
 
     @property
     def rx(self):
+        """
+        The reactive namespace.
+
+        Provides reactive versions of operations that cannot be made reactive through operator overloading, such as
+        `.rx.and_` and `.rx.bool`. Calling this namespace (`()`) returns a reactive expression.
+
+        Returns
+        -------
+        Reactive expression
+            The result of calling the reactive namespace is a reactive expression.
+
+        User Guide
+        ----------
+        https://param.holoviz.org/user_guide/Reactive_Expressions.html#special-methods-on-rx
+
+        Examples
+        --------
+        Create a Parameterized instance:
+
+        >>> import param
+        >>> class P(param.Parameterized):
+        ...     a = param.Number()
+        >>> p = P(a=1)
+
+        Get the current value:
+
+        >>> a = p.param.a.rx.value
+
+        Call it to get a reactive expression:
+
+        >>> rx_value = p.param.a.rx()
+
+        """
         from .reactive import reactive_ops
         return reactive_ops(self)
 
@@ -1774,7 +1810,8 @@ class _ParametersRestorer:
 
 
 class Parameters:
-    """Object that holds the namespace and implementation of Parameterized
+    """
+    Object that holds the namespace and implementation of Parameterized
     methods as well as any state that is not in __slots__ or the
     Parameters themselves.
 
@@ -2223,7 +2260,8 @@ class Parameters:
     # PARAM3_DEPRECATION
     @_deprecated(extra_msg="""Use instead `for k,v in p.param.objects().items(): print(f"{p.__class__.name}.{k}={repr(v.default)}")`""", warning_cat=_ParamFutureWarning)
     def print_param_defaults(self_):
-        """Print the default values of all cls's Parameters.
+        """
+        Print the default values of all cls's Parameters.
 
         .. deprecated:: 1.12.0
             Use instead `for k,v in p.param.objects().items(): print(f"{p.__class__.name}.{k}={repr(v.default)}")`
@@ -2247,12 +2285,42 @@ class Parameters:
         cls = self_.cls
         setattr(cls,param_name,value)
 
-    def add_parameter(self_, param_name, param_obj):
+    def add_parameter(self_, param_name: str, param_obj: Parameter):
         """
-        Add a new Parameter object into this object's class.
+        Add a new Parameter object to this class.
 
-        Should result in a Parameter equivalent to one declared
-        in the class's source code.
+        This method allows dynamically adding a Parameter to the class, resulting in behavior equivalent to declaring
+        the Parameter in the class's source code.
+
+        Parameters
+        ----------
+        param_name : str
+            The name of the parameter to add.
+        param_obj : Parameter
+            The Parameter object to add.
+
+        Examples
+        --------
+        Create a Parameterized class:
+
+        >>> import param
+        >>> class P(param.Parameterized):
+        ...     a = param.Number()
+        ...     b = param.String()
+        >>> p = P()
+
+        Add a new parameter to the class `P` via the class namespace `P.param`:
+
+        >>> P.param.add_parameter('c', param.Tuple(default=(1, 2, 3)))
+        >>> print(p.c)
+        (1, 2, 3)
+
+        Add a new parameter to the class `P` via the instance namespace `p.param`:
+
+        >>> p.param.add_parameter('d', param.Tuple(default=(3, 2, 1)))
+        >>> p.d
+        (3, 2, 1)
+
         """
         # Could have just done setattr(cls,param_name,param_obj),
         # which is supported by the metaclass's __setattr__ , but
@@ -2267,7 +2335,8 @@ class Parameters:
     # PARAM3_DEPRECATION
     @_deprecated(extra_msg="Use instead `.param.add_parameter`", warning_cat=_ParamFutureWarning)
     def _add_parameter(self_,param_name, param_obj):
-        """Add a new Parameter object into this object's class.
+        """
+        Add a new Parameter object into this object's class.
 
         .. deprecated :: 1.12.0
         """
@@ -2296,12 +2365,58 @@ class Parameters:
 
     def update(self_, arg=Undefined, /, **kwargs):
         """
-        For the given dictionary or iterable or set of param=value
-        keyword arguments, sets the corresponding parameter of this
-        object or class to the given value.
+        Update multiple parameters of this object or class before triggering events.
 
-        May also be used as a context manager to temporarily set and
-        then reset parameter values.
+        Allows setting the parameters of the object or class using a dictionary, an iterable, or keyword arguments
+        in the form of `param=value`. The specified parameters will be updated to the given values.
+
+        This method can also be used as a context manager to temporarily set and then reset parameter values.
+
+        Parameters
+        ----------
+        **params : dict or iterable or keyword arguments
+            The parameters to update, provided as a dictionary, iterable, or keyword arguments in `param=value` format.
+
+        User Guide
+        ----------
+        https://param.holoviz.org/user_guide/Parameters.html#other-parameterized-methods
+
+        Examples
+        --------
+        Create a Parameterized class:
+
+        >>> import param
+        >>> class P(param.Parameterized):
+        ...    a = param.String()
+        ...    b = param.String()
+
+        Define the instance:
+
+        >>> p = P(a="0. Hello", b="0. World")
+
+        Use `.update` to update the parameters:
+
+        >>> p.param.update(a="1. Hello", b="2. World")
+        >>> p.a, p.b
+        ('1. Hello', '1. World')
+
+        Update the parameters temporarily:
+
+        >>> with p.param.update(a="2. Hello", b="2. World"):
+        ...     print(p.a, p.b)
+        2. Hello 2. World
+
+        >>> p.a, p.b
+        ('1. Hello', '1. World')
+
+        Lets see that events are triggered **after** all parameters have been updated
+
+        >>> @param.depends(p.param.a, watch=True)
+        ... def print_a_b(a):
+        ...     print(p.a, p.b)
+        >>> my_param.param.update(a="3. Hello",b="3. World")
+        3. Hello 3. World
+
         """
         refs = {}
         if self_.self is not None:
@@ -2580,6 +2695,42 @@ class Parameters:
                 obj.param.set_dynamic_time_fn(time_fn,sublistattr)
 
     def serialize_parameters(self_, subset=None, mode='json'):
+        """
+        Return the serialized parameters of the Parameterized object.
+
+        Parameters
+        ----------
+        subset : list, optional
+            A list of parameter names to serialize. If None, all parameters will be serialized. Defaults to None.
+        mode : str, optional
+            The serialization format. By default, only 'json' is supported. Defaults to 'json'.
+
+        Returns
+        -------
+        Any
+            The serialized value.
+
+        User Guide
+        ----------
+        https://param.holoviz.org/user_guide/Serialization_and_Persistence.html#serializing-with-json
+
+        Examples
+        --------
+        Create a Parameterized instance and serialize its parameters:
+
+        >>> import param
+        >>> class P(param.Parameterized):
+        ...     a = param.Number()
+        ...     b = param.String()
+        >>> p = P(a=1, b="hello")
+
+        Serialize parameters:
+
+        >>> serialized_data = p.param.serialize_parameters()
+        >>> print(serialized_data)
+        {"name": "P00002", "a": 1, "b": "hello"}
+
+        """
         self_or_cls = self_.self_or_cls
         if mode not in Parameter._serializers:
             raise ValueError(f'Mode {mode!r} not in available serialization formats {list(Parameter._serializers.keys())!r}')
@@ -2593,7 +2744,45 @@ class Parameters:
         serializer = Parameter._serializers[mode]
         return serializer.serialize_parameter_value(self_or_cls, pname)
 
-    def deserialize_parameters(self_, serialization, subset=None, mode='json'):
+    def deserialize_parameters(self_, serialization, subset=None, mode='json') -> dict:
+        """
+        Deserialize the given serialized data. This data can be used to create a
+        `Parameterized` object or update the parameters of an existing `Parameterized` object.
+
+        Parameters
+        ----------
+        serialization : str
+            The serialized parameter data as a JSON string.
+        subset : list of str, optional
+            A list of parameter names to deserialize. If `None`, all parameters will be
+            deserialized. Defaults to `None`.
+        mode : str, optional
+            The serialization format. By default, only 'json' is supported.
+            Defaults to 'json'.
+
+        Returns
+        -------
+        dict
+            A dictionary with parameter names as keys and deserialized values.
+
+        User Guide
+        ----------
+        https://param.holoviz.org/user_guide/Serialization_and_Persistence.html#serializing-with-json
+
+        Examples
+        --------
+        >>> import param
+        >>> class P(param.Parameterized):
+        ...     a = param.Number()
+        ...     b = param.String()
+        ...
+        >>> serialized_data = '{"a": 1, "b": "hello"}'
+        >>> deserialized_data = P.param.deserialize_parameters(serialized_data)
+        >>> print(deserialized_data)
+        {'a': 1, 'b': 'hello'}
+        >>> instance = P(**deserialized_data)
+
+        """
         self_or_cls = self_.self_or_cls
         serializer = Parameter._serializers[mode]
         return serializer.deserialize_parameters(self_or_cls, serialization, subset=subset)
@@ -3050,7 +3239,8 @@ class Parameters:
     # PARAM3_DEPRECATION
     @_deprecated(extra_msg="""Use instead `for k,v in p.param.objects().items(): print(f"{p.__class__.name}.{k}={repr(v.default)}")`""", warning_cat=_ParamFutureWarning)
     def print_param_values(self_):
-        """Print the values of all this object's Parameters.
+        """
+        Print the values of all this object's Parameters.
 
         .. deprecated:: 1.12.0
             Use instead `for k,v in p.param.objects().items(): print(f"{p.__class__.name}.{k}={repr(v.default)}")`
@@ -3293,6 +3483,7 @@ class ParameterizedMetaclass(type):
     attribute __abstract set to True. The 'abstract' attribute can be
     used to find out if a class is abstract or not.
     """
+
     def __init__(mcs, name, bases, dict_):
         """
         Initialize the class object (not an instance of the class, but
@@ -3719,7 +3910,6 @@ def script_repr(val, imports=None, prefix="\n    ", settings=[],
     ways that are more suitable for saving as a separate script than
     for e.g. pretty-printing at the Python prompt.
     """
-
     if imports is None:
         imports = []
 
@@ -3777,7 +3967,6 @@ def pprint(val,imports=None, prefix="\n    ", settings=[],
     parameter can be suppressed by returning None from the appropriate
     hook in script_repr_reg.
     """
-
     if imports is None:
         imports = []
 
@@ -4122,10 +4311,10 @@ class Parameterized(metaclass=ParameterizedMetaclass):
     parameter in the instance will get the value given as a keyword
     argument.  For example:
 
-      class Foo(Parameterized):
-         xx = Parameter(default=1)
+    >>> class Foo(Parameterized):
+    ...     xx = Parameter(default=1)
 
-      foo = Foo(xx=20)
+    >>> foo = Foo(xx=20)
 
     in this case foo.xx gets the value 20.
 
@@ -4178,6 +4367,39 @@ class Parameterized(metaclass=ParameterizedMetaclass):
 
     @property
     def param(self):
+        """
+        The `.param` namespace for `Parameterized` classes and instances.
+
+        This namespace provides access to powerful methods and properties for managing
+        parameters in a `Parameterized` object. It includes utilities for adding parameters,
+        updating parameters, debugging, serialization, logging, and more.
+
+        User Guide
+        ----------
+        For more details on parameter objects and instances, see:
+        https://param.holoviz.org/user_guide/Parameters.html#parameter-objects-and-instances
+
+        Examples
+        --------
+        Basic usage of `.param` in a `Parameterized` class:
+
+        >>> import param
+        >>>
+        >>> class MyClass(param.Parameterized):
+        ...     value = param.Parameter()
+        >>>
+        >>> my_instance = MyClass(value=0)
+
+        Access the `value` parameter of `my_instance`:
+
+        >>> my_instance.param.value  # the Parameter instance
+
+        Note that this is different from the current `value` of `my_instance`:
+
+        >>> my_instance.value  # the current parameter value
+        0
+
+        """
         return Parameters(self.__class__, self=self)
 
     # 'Special' methods
@@ -4404,6 +4626,7 @@ class ParameterizedFunction(Parameterized):
 
     To obtain an instance of this class, call instance().
     """
+
     __abstract = True
 
     def __str__(self):
@@ -4415,7 +4638,6 @@ class ParameterizedFunction(Parameterized):
         Return an instance of this class, copying parameters from any
         existing instance provided.
         """
-
         if isinstance (self_or_cls,ParameterizedMetaclass):
             cls = self_or_cls
         else:
@@ -4464,7 +4686,7 @@ class ParameterizedFunction(Parameterized):
 
 
 class default_label_formatter(ParameterizedFunction):
-    "Default formatter to turn parameter names into appropriate widget labels."
+    """Default formatter to turn parameter names into appropriate widget labels."""
 
     capitalize = Parameter(default=True, doc="""
         Whether or not the label should be capitalized.""")
@@ -4502,6 +4724,7 @@ class overridable_property:
 
     .. deprecated:: 2.0.0
     """
+
     # Delays looking up the accessors until they're needed, rather
     # than finding them when the class is first created.
 

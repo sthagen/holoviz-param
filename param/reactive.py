@@ -181,10 +181,37 @@ class NestedResolver(Resolver):
 
 class reactive_ops:
     """
-    Namespace for reactive operators.
+    The reactive namespace.
 
-    Implements operators that cannot be implemented using regular
-    Python syntax.
+    Provides reactive versions of operations that cannot be made reactive through operator overloading, such as
+    `.rx.and_` and `.rx.bool`. Calling this namespace (`()`) returns a reactive expression.
+
+    Returns
+    -------
+    Reactive expression
+        The result of calling the reactive namespace is a reactive expression.
+
+    User Guide
+    ----------
+    https://param.holoviz.org/user_guide/Reactive_Expressions.html#special-methods-on-rx
+
+    Examples
+    --------
+    Create a Parameterized instance:
+
+    >>> import param
+    >>> class P(param.Parameterized):
+    ...     a = param.Number()
+    >>> p = P(a=1)
+
+    Get the current value:
+
+    >>> a = p.param.a.rx.value
+
+    Call it to get a reactive expression:
+
+    >>> rx_value = p.param.a.rx()
+
     """
 
     def __init__(self, reactive):
@@ -194,6 +221,7 @@ class reactive_ops:
         return self._reactive if isinstance(self._reactive, rx) else self()
 
     def __call__(self):
+        """Creates a reactive expression."""
         rxi = self._reactive
         return rxi if isinstance(rx, rx) else rx(rxi)
 
@@ -249,7 +277,7 @@ class reactive_ops:
         """
         Apply a function to each item.
 
-        Arguments
+        Arguments:
         ---------
         func: function
           Function to apply.
@@ -257,6 +285,7 @@ class reactive_ops:
           Positional arguments to pass to `func`.
         kwargs: mapping, optional
           A dictionary of keywords to pass to `func`.
+
         """
         if inspect.isasyncgenfunction(func) or inspect.isgeneratorfunction(func):
             raise TypeError(
@@ -287,7 +316,7 @@ class reactive_ops:
         """
         Apply chainable functions.
 
-        Arguments
+        Arguments:
         ---------
         func: function
           Function to apply.
@@ -295,6 +324,7 @@ class reactive_ops:
           Positional arguments to pass to `func`.
         kwargs: mapping, optional
           A dictionary of keywords to pass to `func`.
+
         """
         return self._as_rx()._apply_operator(func, *args, **kwargs)
 
@@ -305,7 +335,7 @@ class reactive_ops:
         As an example if the expression returns a list of parameters
         this operation will return a list of the parameter values.
 
-        Arguments
+        Arguments:
         ---------
         nested: bool
           Whether to resolve references contained within nested objects,
@@ -314,6 +344,7 @@ class reactive_ops:
           Whether to recursively resolve references, i.e. if a reference
           itself returns a reference we recurse into it until no more
           references can be resolved.
+
         """
         resolver_type = NestedResolver if nested else Resolver
         resolver = resolver_type(object=self._reactive, recursive=recursive)
@@ -336,13 +367,14 @@ class reactive_ops:
         expression will not be evaluated until the first event is
         triggered.
 
-        Arguments
+        Arguments:
         ---------
         dependencies: param.Parameter | rx
           A dependency that will trigger an update in the output.
         initial: object
           Object that will stand in for the actual value until the
           first time a param.Event in the dependencies is triggered.
+
         """
         deps = [p for d in dependencies for p in resolve_ref(d)]
         is_event = all(isinstance(dep, Event) for dep in deps)
@@ -360,12 +392,13 @@ class reactive_ops:
         Returns either x or y depending on the current state of the
         expression, i.e. replaces a ternary if statement.
 
-        Arguments
+        Arguments:
         ---------
         x: object
           The value to return if the expression evaluates to True.
         y: object
           The value to return if the expression evaluates to False.
+
         """
         xrefs = resolve_ref(x)
         yrefs = resolve_ref(y)
@@ -469,7 +502,7 @@ def bind(function, *args, watch=False, **kwargs):
     which allows all of the arguments to be bound, leaving a simple
     callable object.
 
-    Arguments
+    Arguments:
     ---------
     function: callable
         The function to bind constant or dynamic args and kwargs to.
@@ -485,6 +518,7 @@ def bind(function, *args, watch=False, **kwargs):
     -------
     Returns a new function with the args and kwargs bound to it and
     annotated with all dependencies.
+
     """
     args, kwargs = (
         tuple(transform_reference(arg) for arg in args),
@@ -623,6 +657,7 @@ class rx:
     Then update the original value and see the new result:
     >>> ifloat.value = 1
     2
+
     """
 
     _accessors: dict[str, Callable[[rx], Any]] = {}
@@ -641,7 +676,7 @@ class rx:
         """
         Registers an accessor that extends rx with custom behavior.
 
-        Arguments
+        Arguments:
         ---------
         name: str
           The name of the accessor will be attribute-accessible under.
@@ -649,6 +684,7 @@ class rx:
           A callable that will return the accessor namespace object
           given the rx object it is registered on.
         predicate: Callable[[Any], bool] | None
+
         """
         cls._accessors[name] = (accessor, predicate)
 
@@ -659,7 +695,7 @@ class rx:
         making it possible to define custom display options for
         specific objects.
 
-        Arguments
+        Arguments:
         ---------
         obj_type: type | callable
           The type to register a custom display handler on.
@@ -668,6 +704,7 @@ class rx:
           and the custom keyword arguments.
         kwargs: dict[str, Any]
           Additional display options to register for this type.
+
         """
         cls._display_handlers[obj_type] = (handler, kwargs)
 
@@ -755,13 +792,50 @@ class rx:
         ]
         self._setup_invalidations(depth)
         self._kwargs = kwargs
-        self.rx = reactive_ops(self)
+        self._rx = reactive_ops(self)
         self._init = True
         for name, accessor in _display_accessors.items():
             setattr(self, name, accessor(self))
         for name, (accessor, predicate) in rx._accessors.items():
             if predicate is None or predicate(self._current):
                 setattr(self, name, accessor(self))
+
+    @property
+    def rx(self) -> reactive_ops:
+        """
+        The reactive namespace.
+
+        Provides reactive versions of operations that cannot be made reactive through operator overloading, such as
+        `.rx.and_` and `.rx.bool`. Calling this namespace (`()`) returns a reactive expression.
+
+        Returns
+        -------
+        Reactive expression
+            The result of calling the reactive namespace is a reactive expression.
+
+        User Guide
+        ----------
+        https://param.holoviz.org/user_guide/Reactive_Expressions.html#special-methods-on-rx
+
+        Examples
+        --------
+        Create a Parameterized instance:
+
+        >>> import param
+        >>> class P(param.Parameterized):
+        ...     a = param.Number()
+        >>> p = P(a=1)
+
+        Get the current value:
+
+        >>> a = p.param.a.rx.value
+
+        Call it to get a reactive expression:
+
+        >>> rx_value = p.param.a.rx()
+
+        """
+        return self._rx
 
     @property
     def _obj(self):
