@@ -50,7 +50,7 @@ from ._utils import (
     _validate_error_prefix,
     accept_arguments,
     iscoroutinefunction,
-    descendents,
+    descendents,  # noqa: F401
     gen_types,
 )
 
@@ -340,15 +340,23 @@ def edit_constant(parameterized):
     Temporarily set parameters on Parameterized object to constant=False
     to allow editing them.
     """
-    params = parameterized.param.objects('existing').values()
-    constants = [p.constant for p in params]
-    for p in params:
-        p.constant = False
+    kls_params = parameterized.param.objects(instance=False)
+    inst_params = parameterized._param__private.params
+    updated = []
+    for pname, pobj in (kls_params | inst_params).items():
+        if pobj.constant:
+            pobj.constant = False
+            updated.append(pname)
     try:
         yield
     finally:
-        for (p, const) in zip(params, constants):
-            p.constant = const
+        for pname in updated:
+            # Some operations trigger a parameter instantiation (copy),
+            # we ensure both the class and instance parameters are reset.
+            if pname in kls_params:
+                type(parameterized).param[pname].constant=True
+            if pname in inst_params:
+                parameterized.param[pname].constant = True
 
 
 @contextmanager
@@ -1303,7 +1311,10 @@ class Parameter(_ParameterBase):
         self.precedence = precedence
         self.default = default
         self.doc = doc
-        self.constant = constant is True or readonly is True # readonly => constant
+        if constant is True or readonly is True:  # readonly => constant
+            self.constant = True
+        else:
+            self.constant = constant
         self.readonly = readonly
         self._label = label
         self._set_instantiate(instantiate)
@@ -5286,20 +5297,6 @@ class Parameterized(metaclass=ParameterizedMetaclass):
     def __str__(self):
         """Return a short representation of the name and class of this object."""
         return f"<{self.__class__.__name__} {self.name}>"
-
-
-def print_all_param_defaults():
-    """Print the default values for all imported Parameters."""
-    print("_______________________________________________________________________________")
-    print("")
-    print("                           Parameter Default Values")
-    print("")
-    classes = descendents(Parameterized)
-    classes.sort(key=lambda x:x.__name__)
-    for c in classes:
-        c.print_param_defaults()
-    print("_______________________________________________________________________________")
-
 
 
 # As of Python 2.6+, a fn's **args no longer has to be a

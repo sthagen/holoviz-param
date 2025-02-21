@@ -19,6 +19,7 @@ from param.parameterized import (
     ParamOverrides,
     Undefined,
     default_label_formatter,
+    edit_constant,
     no_instance_params,
     shared_parameters,
 )
@@ -312,6 +313,17 @@ class TestParameterized(unittest.TestCase):
         TestPO.const=9
         testpo = TestPO()
         self.assertEqual(testpo.const,9)
+
+    def test_edit_constant(self):
+        testpo = TestPO(const=670)
+        # Checking no parameter was already instantiated
+        assert not testpo._param__private.params
+        with edit_constant(testpo):
+            testpo.const = 891
+        assert testpo.const == 891
+        assert testpo.param['const'].constant
+        assert TestPO.param['const'].constant
+        assert TestPO.param['const'].default not in (670, 891)
 
     def test_readonly_parameter(self):
         """Test that you can't set a read-only parameter on construction or as an attribute."""
@@ -1276,7 +1288,7 @@ def test_inheritance_instantiate_behavior():
     assert b.param.p.instantiate is True
 
 
-def test_inheritance_constant_behavior():
+def test_inheritance_readonly_behavior():
     class A(param.Parameterized):
         p = param.Parameter(readonly=True)
 
@@ -1284,13 +1296,28 @@ def test_inheritance_constant_behavior():
         p = param.Parameter()
 
 
-    # Normally, param.Parameter(readonly=True) ends up with constant being
-    # True.
-    assert B.param.p.constant is False
+    assert B.param.p.readonly is True
+    assert B.param.p.constant is True
 
     b = B()
 
-    assert b.param.p.constant is False
+    assert b.param.p.readonly is True
+    assert b.param.p.constant is True
+
+
+def test_inheritance_constant_behavior():
+    class A(param.Parameterized):
+        p = param.Parameter(constant=True)
+
+    class B(A):
+        p = param.Parameter()
+
+
+    assert B.param.p.constant is True
+
+    b = B()
+
+    assert b.param.p.constant is True
 
 
 def test_inheritance_set_Parameter_instantiate_constant_before_instantation():
