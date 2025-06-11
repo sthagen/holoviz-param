@@ -2153,7 +2153,7 @@ class Parameters:
             dep_obj.param.unwatch(watcher)
         self_.self._param__private.ref_watchers = []
         refs = dict(self_.self._param__private.refs, **{name: ref})
-        deps = {name: resolve_ref(ref) for name, ref in refs.items()}
+        deps = {name: resolve_ref(ref, self_[name].nested_refs) for name, ref in refs.items()}
         self_._setup_refs(deps)
         self_.self._param__private.refs = refs
 
@@ -3282,6 +3282,8 @@ class Parameters:
             if isinstance(cls_or_slf, Parameterized) and name in cls_or_slf._param__private.values:
                 # dealing with object and it's been set on this object
                 value = cls_or_slf._param__private.values[name]
+            elif not callable(param_obj.default):
+                value = getattr(cls_or_slf, name)
             else:
                 # dealing with class or isn't set on the object
                 value = param_obj.default
