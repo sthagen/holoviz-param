@@ -934,6 +934,18 @@ class reactive_ops:
 
     # Operations to get the output and set the input of an expression
 
+    def set(self, value):
+        """
+        Set the input of the pipeline to a new value. Equivalent
+        to `.rx.value = value`.
+
+        Parameters
+        ----------
+        value : object
+            The value to set the pipeline input to.
+        """
+        self.value = value
+
     @property
     def value(self):
         """
@@ -1106,7 +1118,7 @@ class reactive_ops:
         bind(cb, self._reactive, watch=True)
 
 
-def bind(function, *args, watch=False, **kwargs):
+def bind(function, *args, watch: bool = False, **kwargs):
     """
     Bind constant values, parameters, bound functions or reactive expressions to a function.
 
@@ -1974,6 +1986,17 @@ class rx:
         else:
             obj = fn(obj, *resolved_args, **resolved_kwargs)
         return obj
+
+    def __setattr__(self, name, value):
+        # Setting value instead of rx.value is a common user mistake.
+        # They are more but we don't want to restrict __setattr__ too much
+        # so only catch value, for now.
+        if name == "value":
+            raise AttributeError(
+                "'rx' has no attribute 'value', try "
+                "'<reactive_expr>.rx.value = <val>'."
+            )
+        super().__setattr__(name, value)
 
 
 def _rx_transform(obj):
