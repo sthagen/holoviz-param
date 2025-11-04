@@ -27,6 +27,7 @@ import pathlib
 import re
 import sys
 import typing
+import warnings
 
 from collections import OrderedDict
 from collections.abc import Iterable
@@ -38,6 +39,8 @@ from .parameterized import (
     _int_types
 )
 from ._utils import (
+    ParamDeprecationWarning as _ParamDeprecationWarning,
+    _find_stack_level,
     _validate_error_prefix,
     _deserialize_from_path,
     _named_objs,
@@ -481,7 +484,7 @@ class Dynamic(Parameter):
         self, default=None, *,
         doc=None, label=None, precedence=None, instantiate=False, constant=False,
         readonly=False, pickle_default_value=True, allow_None=False, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -662,7 +665,7 @@ class Number(Dynamic):
         default=0.0, *, bounds=None, softbounds=None, inclusive_bounds=(True,True), step=None,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -862,7 +865,7 @@ class Magnitude(Number):
         default=1.0, *, bounds=(0.0, 1.0), softbounds=None, inclusive_bounds=(True,True), step=None,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -885,7 +888,7 @@ class Date(Number):
         default=None, *, bounds=None, softbounds=None, inclusive_bounds=(True,True), step=None,
         doc=None, label=None, precedence=None, instantiate=False, constant=False,
         readonly=False, pickle_default_value=True, allow_None=False, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -944,7 +947,7 @@ class CalendarDate(Number):
         default=None, *, bounds=None, softbounds=None, inclusive_bounds=(True,True), step=None,
         doc=None, label=None, precedence=None, instantiate=False, constant=False,
         readonly=False, pickle_default_value=True, allow_None=False, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -998,7 +1001,7 @@ class Boolean(Parameter):
         default=False, *,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -1051,7 +1054,7 @@ class Event(Boolean):
         default=False, *,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -1123,7 +1126,7 @@ class Tuple(Parameter):
         default=(0,0), *, length=None,
         doc=None, label=None, precedence=None, instantiate=False, constant=False,
         readonly=False, pickle_default_value=True, allow_None=False, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -1210,7 +1213,7 @@ class XYCoordinates(NumericTuple):
         default=(0.0, 0.0), *, length=None,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -1234,7 +1237,7 @@ class Range(NumericTuple):
         default=None, *, bounds=None, softbounds=None, inclusive_bounds=(True,True), step=None, length=None,
         doc=None, label=None, precedence=None, instantiate=False, constant=False,
         readonly=False, pickle_default_value=True, allow_None=False, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -1464,7 +1467,7 @@ class Callable(Parameter):
         default=None, *,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -1518,7 +1521,7 @@ class Composite(Parameter):
         *, attribs=None,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -1828,7 +1831,8 @@ class Selector(SelectorBase, _SignatureSelector):
         *, objects=[], default=None, instantiate=False, compute_default_fn=None,
         check_on_set=None, allow_None=None, empty_default=False,
         doc=None, label=None, precedence=None, constant=False, readonly=False,
-        pickle_default_value=True, per_instance=True, allow_refs=False, nested_refs=False
+        pickle_default_value=True, per_instance=True, allow_refs=False, nested_refs=False,
+        default_factory=None
     ):
         ...
 
@@ -1837,6 +1841,13 @@ class Selector(SelectorBase, _SignatureSelector):
     def __init__(self, *, objects=Undefined, default=Undefined, instantiate=Undefined,
                  compute_default_fn=Undefined, check_on_set=Undefined,
                  allow_None=Undefined, empty_default=False, **params):
+
+        if compute_default_fn is not Undefined:
+            warnings.warn(
+                'compute_default_fn has been deprecated and will be removed in a future version.',
+                _ParamDeprecationWarning,
+                stacklevel=_find_stack_level(),
+            )
 
         autodefault = Undefined
         if objects is not Undefined and objects:
@@ -1889,7 +1900,15 @@ class Selector(SelectorBase, _SignatureSelector):
 
         Also removes None from the list of objects (if the default is
         no longer None).
+
+        .. deprecated:: 2.3.0
         """
+        warnings.warn(
+            'compute_default() has been deprecated and will be removed in a future version.',
+            _ParamDeprecationWarning,
+            stacklevel=_find_stack_level(),
+        )
+
         if self.default is None and callable(self.compute_default_fn):
             self.default = self.compute_default_fn()
             self._ensure_value_is_in_objects(self.default)
@@ -1950,7 +1969,8 @@ class ObjectSelector(Selector):
         default=None, *, objects=[], instantiate=False, compute_default_fn=None,
         check_on_set=None, allow_None=None, empty_default=False,
         doc=None, label=None, precedence=None, constant=False, readonly=False,
-        pickle_default_value=True, per_instance=True, allow_refs=False, nested_refs=False
+        pickle_default_value=True, per_instance=True, allow_refs=False, nested_refs=False,
+        default_factory=None
     ):
         ...
 
@@ -1974,7 +1994,8 @@ class FileSelector(Selector):
         default=None, *, path="", objects=[], instantiate=False, compute_default_fn=None,
         check_on_set=None, allow_None=None, empty_default=False,
         doc=None, label=None, precedence=None, constant=False, readonly=False,
-        pickle_default_value=True, per_instance=True, allow_refs=False, nested_refs=False
+        pickle_default_value=True, per_instance=True, allow_refs=False, nested_refs=False,
+        default_factory=None
     ):
         ...
 
@@ -2021,7 +2042,8 @@ class ListSelector(Selector):
         default=None, *, objects=[], instantiate=False, compute_default_fn=None,
         check_on_set=None, allow_None=None, empty_default=False,
         doc=None, label=None, precedence=None, constant=False, readonly=False,
-        pickle_default_value=True, per_instance=True, allow_refs=False, nested_refs=False
+        pickle_default_value=True, per_instance=True, allow_refs=False, nested_refs=False,
+        default_factory=None
     ):
         ...
 
@@ -2030,6 +2052,11 @@ class ListSelector(Selector):
             objects=objects, default=default, empty_default=True, **kwargs)
 
     def compute_default(self):
+        warnings.warn(
+            'compute_default() has been deprecated and will be removed in a future version.',
+            _ParamDeprecationWarning,
+            stacklevel=_find_stack_level(),
+        )
         if self.default is None and callable(self.compute_default_fn):
             self.default = self.compute_default_fn()
             for o in self.default:
@@ -2082,7 +2109,8 @@ class MultiFileSelector(ListSelector):
         check_on_set=None, allow_None=None, empty_default=False,
         doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True,
-        per_instance=True, allow_refs=False, nested_refs=False
+        per_instance=True, allow_refs=False, nested_refs=False,
+        default_factory=None
     ):
         ...
 
@@ -2131,7 +2159,7 @@ class ClassSelector(SelectorBase):
         *, class_, default=None, instantiate=True, is_instance=True,
         allow_None=False, doc=None, label=None, precedence=None,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -2193,7 +2221,7 @@ class Dict(ClassSelector):
         default=None, *, is_instance=True,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=True,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -2210,7 +2238,7 @@ class Array(ClassSelector):
         default=None, *, is_instance=True,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=True,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -2269,7 +2297,7 @@ class DataFrame(ClassSelector):
         default=None, *, rows=None, columns=None, ordered=None, is_instance=True,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=True,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -2384,7 +2412,7 @@ class Series(ClassSelector):
         default=None, *, rows=None, allow_None=False, is_instance=True,
         doc=None, label=None, precedence=None, instantiate=True,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -2444,7 +2472,7 @@ class List(Parameter):
         default=[], *, item_type=None, instantiate=True, bounds=(0, None),
         is_instance=True, allow_None=False, doc=None, label=None, precedence=None,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -2649,7 +2677,7 @@ class Path(Parameter):
         default=None, *, search_paths=None, check_exists=True,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -2800,7 +2828,7 @@ class Color(Parameter):
         default=None, *, allow_named=True,
         allow_None=False, doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
@@ -2864,7 +2892,7 @@ class Bytes(Parameter):
         default=b"", *, regex=None, allow_None=False,
         doc=None, label=None, precedence=None, instantiate=False,
         constant=False, readonly=False, pickle_default_value=True, per_instance=True,
-        allow_refs=False, nested_refs=False
+        allow_refs=False, nested_refs=False, default_factory=None
     ):
         ...
 
