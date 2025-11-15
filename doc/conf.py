@@ -51,7 +51,7 @@ copyright = copyright_fmt.format(**copyright_years)  # noqa
 description = 'Declarative Python programming using Parameters'
 
 # Useful for SEO on a versioned site
-html_baseurl = 'https://d1e86hvd7le0jf.cloudfront.net/en/docs/latest/'
+html_baseurl = 'https://param.holoviz.org/en/docs/latest/'
 
 version = release = base_version(param.__version__)  # noqa
 
@@ -63,7 +63,7 @@ html_logo = "_static/logo_horizontal.png"
 
 html_favicon = "_static/favicon.ico"
 
-exclude_patterns = ['governance/**/*.*', 'Promo.ipynb']
+exclude_patterns = ['governance/**/*.*']
 
 html_context.update(  # noqa
     {
@@ -109,7 +109,7 @@ html_theme_options = {
         "last-updated",
     ],
     "switcher": {
-        "json_url": "https://d1e86hvd7le0jf.cloudfront.net/switcher.json",
+        "json_url": "https://param.holoviz.org/switcher.json",
         "version_match": switcher_version,
     },
     "show_version_warning_banner": True,
