@@ -1944,7 +1944,7 @@ class Parameter(_ParameterBase, t.Generic[_T]):
         return result
 
     @instance_descriptor
-    def __set__(self, obj: Parameterized, val: _T):
+    def __set__(self, obj: Parameterized | None, val: _T):
         """
         Set the value for this Parameter.
 
@@ -2255,7 +2255,7 @@ class String(Parameter[_T]):
     def _validate_regex(self, val: t.Any, regex: str | re.Pattern[str] | None):
         if val is None or regex is None:
             return
-        if re.fullmatch(regex, val) is None:
+        if re.search(regex, val) is None:
             raise ValueError(
                 f'{_validate_error_prefix(self)} value {val!r} does not '
                 f'match regex {regex!r}.'
@@ -2731,7 +2731,7 @@ class Parameters:
         except Skip:
             value = Undefined
         if is_async and pobj.name:
-            async_executor(partial(self_._async_ref, pobj.name, value))
+            async_executor(partial(self_._async_ref, pobj.name, t.cast("t.Awaitable[t.Any]", value)))
             value = None
         return ref, deps, value, is_async
 
